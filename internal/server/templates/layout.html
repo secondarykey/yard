@@ -1,0 +1,84 @@
+{{define "head"}}<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} - yard</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --fg: #1d2330; --muted: #6b7280; --line: #e3e6eb;
+  --accent: #2f6fed; --ok: #1f9d55; --warn: #c27c0e; --bad: #d64545; --idle: #8a94a6;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171c; --panel: #1c2027; --fg: #e5e8ee; --muted: #9aa3b2; --line: #2c323c;
+          --accent: #6b9bff; --ok: #3ccf7f; --warn: #e6a23c; --bad: #ff6b6b; --idle: #7d8696; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header { display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 52px;
+         background: var(--panel); border-bottom: 1px solid var(--line); }
+header .brand { font-weight: 700; font-size: 17px; letter-spacing: .02em; color: var(--fg); }
+header nav { display: flex; gap: 4px; }
+header nav a { padding: 6px 12px; border-radius: 6px; color: var(--muted); }
+header nav a.on { background: var(--bg); color: var(--fg); font-weight: 600; }
+header nav a:hover { text-decoration: none; color: var(--fg); }
+main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: auto; }
+.bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.bar h1 { font-size: 18px; margin: 0; }
+.bar .spacer { flex: 1; }
+.bar form { margin: 0; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: none; }
+td.err { white-space: normal; color: var(--bad); font-size: 12px; min-width: 160px; max-width: 320px; word-break: break-all; }
+td.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+.state { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
+.state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.state.running { color: var(--ok); } .state.running::before { background: var(--ok); }
+.state.starting, .state.backoff { color: var(--warn); }
+.state.starting::before, .state.backoff::before { background: var(--warn); }
+.state.failed { color: var(--bad); } .state.failed::before { background: var(--bad); }
+.state.stopped, .state.disabled { color: var(--idle); }
+.actions { display: flex; gap: 6px; align-items: center; }
+.actions form { margin: 0; }
+button, .btn { font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+         border: 1px solid var(--line); background: var(--panel); color: var(--fg); display: inline-block; }
+button:hover:not(:disabled), .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { filter: brightness(1.1); color: #fff; }
+.msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; border: 1px solid; white-space: pre-wrap; }
+.msg.error { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.msg.info { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.msg.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+textarea { display: block; width: 100%; min-height: 65vh; padding: 14px; border: none; outline: none; resize: vertical;
+           background: var(--panel); color: var(--fg); tab-size: 4; }
+pre.log { margin: 0; padding: 14px; max-height: 75vh; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.muted { color: var(--muted); }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+{{end}}
+
+{{define "nav"}}
+<header>
+  <span class="brand">yard</span>
+  <nav>
+    <a href="{{admin}}/" {{if eq . "tools"}}class="on"{{end}}>ツール</a>
+    <a href="{{admin}}/config" {{if eq . "config"}}class="on"{{end}}>設定</a>
+  </nav>
+</header>
+{{end}}
+
+{{define "foot"}}
+</body>
+</html>
+{{end}}

@@ -1,0 +1,376 @@
+// Package config は yard.ini（TOML）を読み、検証する。
+//
+// 設定ファイル中の相対パス（command / dir / log / access_log）は、
+// すべて設定ファイルのあるディレクトリを基準に解決する。サービスとして
+// 動くときの作業ディレクトリは System32 や / になるため、実行時の
+// カレントディレクトリには頼らない。
+//
+// 読み込みでは次の2点を意図的に行っている。
+//
+//   - UTF-8 BOM を取り除く。メモ帳などで手編集した時点で起動しなくなるのを防ぐ。
+//   - 未知の項目をエラーにする。綴り間違いを黙って無視すると
+//     「設定が効かない」原因に辿り着けない。
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/BurntSushi/toml"
+)
+
+// FileName は設定ファイルの既定の名前。
+const FileName = "yard.ini"
+
+// AdminPath は yard 自身の管理画面の URL。ツールの path には使えない。
+const AdminPath = "/.yard"
+
+// 再起動ポリシー。
+const (
+	RestartOnFailure = "on-failure" // 異常終了（終了コード非0）のときだけ再起動する
+	RestartAlways    = "always"     // 終了したら必ず再起動する
+	RestartNever     = "never"      // 再起動しない
+)
+
+// Config は yard.ini 全体。
+type Config struct {
+	Server  Server  `toml:"server"`
+	Admin   Admin   `toml:"admin"`
+	Service Service `toml:"service"`
+	Tools   []Tool  `toml:"tool"`
+
+	// Dir は設定ファイルのあるディレクトリ（絶対パス）。相対パスの基準。
+	Dir string `toml:"-"`
+}
+
+// Server は待ち受けとログの設定。
+type Server struct {
+	Addr      string `toml:"addr"`       // 待ち受けアドレス。既定 ":8080"
+	AccessLog string `toml:"access_log"` // アクセスログの出力先。空なら出力しない
+	Log       string `toml:"log"`        // yard 自身のログの出力先。空なら標準エラー（サービス時はOSのログ）
+}
+
+// Admin は /.yard の設定。
+type Admin struct {
+	// Allow は /.yard を操作できる接続元（IP または CIDR）。
+	// 設定の書き換えはプログラムの実行と同義なので、既定はループバックのみ。
+	// "*" ですべてを許可する。/.yard/health はこの制限を受けない。
+	Allow []string `toml:"allow"`
+
+	prefixes []netip.Prefix
+	any      bool
+}
+
+// Service はサービス登録時の情報。install 時にだけ使う。
+type Service struct {
+	Name        string `toml:"name"`
+	DisplayName string `toml:"display_name"`
+	Description string `toml:"description"`
+	User        string `toml:"user"` // 実行ユーザ（Linux/macOS）。空なら OS の既定
+	// UserService はログインユーザのサービスとして登録する（Linux: systemd --user、
+	// macOS: ~/Library/LaunchAgents）。Windows では無視される。
+	UserService bool `toml:"user_service"`
+}
+
+// Tool は yard が起動して公開する1つのプログラム。
+type Tool struct {
+	Name    string   `toml:"name"`    // 識別名（必須・一意）
+	Path    string   `toml:"path"`    // 公開する URI の接頭辞（必須・一意）。例 "/memo"
+	Command string   `toml:"command"` // 実行ファイル（必須）
+	Args    []string `toml:"args"`    // 引数。{port} {base} などを置換する
+	Dir     string   `toml:"dir"`     // 作業ディレクトリ。既定は設定ファイルのディレクトリ
+	Env     []string `toml:"env"`     // 追加の環境変数 "KEY=VALUE"。置換あり
+	Log     string   `toml:"log"`     // 標準出力・標準エラーの出力先。空なら捨てる
+
+	StripPrefix  bool     `toml:"strip_prefix"`  // path を取り除いてから転送する
+	Restart      string   `toml:"restart"`       // on-failure（既定）/ always / never
+	StartTimeout Duration `toml:"start_timeout"` // ポートが開くまでの待ち時間。既定 30s
+	Disabled     bool     `toml:"disabled"`      // 起動しない
+}
+
+// Duration は TOML の "30s" 形式の文字列を受け付ける。
+type Duration struct{ time.Duration }
+
+func (d *Duration) UnmarshalText(b []byte) error {
+	v, err := time.ParseDuration(string(b))
+	if err != nil {
+		return err
+	}
+	d.Duration = v
+	return nil
+}
+
+func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// Load は path の設定ファイルを読み、既定値を補って検証する。
+func Load(path string) (*Config, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(data, filepath.Dir(abs))
+}
+
+// Parse は設定の本文を解釈する。dir は相対パスの基準。
+func Parse(data []byte, dir string) (*Config, error) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+
+	var c Config
+	md, err := toml.Decode(string(data), &c)
+	if err != nil {
+		return nil, err
+	}
+	if und := md.Undecoded(); len(und) > 0 {
+		keys := make([]string, len(und))
+		for i, k := range und {
+			keys[i] = k.String()
+		}
+		return nil, fmt.Errorf("unknown keys: %s", strings.Join(keys, ", "))
+	}
+	c.Dir = dir
+	if err := c.normalize(); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (c *Config) normalize() error {
+	var errs []error
+
+	if c.Server.Addr == "" {
+		c.Server.Addr = ":8080"
+	}
+	if _, _, err := net.SplitHostPort(c.Server.Addr); err != nil {
+		errs = append(errs, fmt.Errorf("server.addr: %w", err))
+	}
+	c.Server.AccessLog = c.Abs(c.Server.AccessLog)
+	c.Server.Log = c.Abs(c.Server.Log)
+
+	if err := c.Admin.parse(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if c.Service.Name == "" {
+		c.Service.Name = "yard"
+	}
+	if c.Service.DisplayName == "" {
+		c.Service.DisplayName = c.Service.Name
+	}
+	if c.Service.Description == "" {
+		c.Service.Description = "yard - tool hosting proxy"
+	}
+
+	names := map[string]bool{}
+	paths := map[string]string{}
+	for i := range c.Tools {
+		t := &c.Tools[i]
+		label := fmt.Sprintf("tool[%d]", i)
+		if t.Name != "" {
+			label = fmt.Sprintf("tool %q", t.Name)
+		}
+
+		switch {
+		case t.Name == "":
+			errs = append(errs, fmt.Errorf("%s: name is required", label))
+		case strings.ContainsAny(t.Name, "/\\ \t?#%"):
+			errs = append(errs, fmt.Errorf("%s: name must not contain '/', spaces, '?', '#' or '%%'", label))
+		case names[t.Name]:
+			errs = append(errs, fmt.Errorf("%s: duplicate name", label))
+		}
+		names[t.Name] = true
+
+		p, err := cleanPath(t.Path)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: path: %w", label, err))
+		} else if other, ok := paths[p]; ok {
+			errs = append(errs, fmt.Errorf("%s: path %q is also used by %q", label, p, other))
+		} else {
+			paths[p] = t.Name
+		}
+		t.Path = p
+
+		if t.Command == "" {
+			errs = append(errs, fmt.Errorf("%s: command is required", label))
+		} else if strings.ContainsAny(t.Command, `/\`) {
+			// 区切りを含むものはファイルパス、含まないものは PATH から探すコマンド名。
+			t.Command = c.Abs(t.Command)
+		}
+		if t.Dir == "" {
+			t.Dir = c.Dir
+		} else {
+			t.Dir = c.Abs(t.Dir)
+		}
+		t.Log = c.Abs(t.Log)
+
+		for _, e := range t.Env {
+			if k, _, ok := strings.Cut(e, "="); !ok || k == "" {
+				errs = append(errs, fmt.Errorf("%s: env %q must be KEY=VALUE", label, e))
+			}
+		}
+
+		switch t.Restart {
+		case "":
+			t.Restart = RestartOnFailure
+		case RestartOnFailure, RestartAlways, RestartNever:
+		default:
+			errs = append(errs, fmt.Errorf("%s: restart must be %q, %q or %q", label, RestartOnFailure, RestartAlways, RestartNever))
+		}
+		if t.StartTimeout.Duration <= 0 {
+			t.StartTimeout.Duration = 30 * time.Second
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// cleanPath は path を "/" 始まり・末尾スラッシュ無しに揃える（ルートは "/"）。
+func cleanPath(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("is required")
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("%q must start with '/'", p)
+	}
+	if strings.ContainsAny(p, "?#%") {
+		return "", fmt.Errorf("%q must not contain '?', '#' or '%%'", p)
+	}
+	p = path.Clean(p)
+	if p == AdminPath || strings.HasPrefix(p, AdminPath+"/") {
+		return "", fmt.Errorf("%q is reserved for yard", AdminPath)
+	}
+	return p, nil
+}
+
+// Abs は設定ファイルのディレクトリを基準に p を絶対パスにする。空ならそのまま。
+func (c *Config) Abs(p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(c.Dir, p)
+}
+
+// Tool は名前でツール設定を探す。
+func (c *Config) Tool(name string) (Tool, bool) {
+	for _, t := range c.Tools {
+		if t.Name == name {
+			return t, true
+		}
+	}
+	return Tool{}, false
+}
+
+func (a *Admin) parse() error {
+	if a.Allow == nil {
+		a.Allow = []string{"127.0.0.1", "::1"}
+	}
+	a.prefixes = nil
+	a.any = false
+	var errs []error
+	for _, s := range a.Allow {
+		if s == "*" {
+			a.any = true
+			continue
+		}
+		if p, err := netip.ParsePrefix(s); err == nil {
+			a.prefixes = append(a.prefixes, p.Masked())
+			continue
+		}
+		ip, err := netip.ParseAddr(s)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("admin.allow: %q is not an IP address or CIDR", s))
+			continue
+		}
+		a.prefixes = append(a.prefixes, netip.PrefixFrom(ip, ip.BitLen()))
+	}
+	return errors.Join(errs...)
+}
+
+// Allowed は接続元 remoteAddr（"host:port"）が管理画面を使えるかを返す。
+func (a *Admin) Allowed(remoteAddr string) bool {
+	if a.any {
+		return true
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap().WithZone("")
+	for _, p := range a.prefixes {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultPath は設定ファイルの既定の場所を返す。
+// カレントディレクトリに yard.ini があればそれを、無ければ実行ファイルの隣を使う。
+func DefaultPath() string {
+	if _, err := os.Stat(FileName); err == nil {
+		if abs, err := filepath.Abs(FileName); err == nil {
+			return abs
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return FileName
+	}
+	return filepath.Join(filepath.Dir(exe), FileName)
+}
+
+// Template は install / init で書き出す設定ファイルの雛形。
+const Template = `# yard の設定ファイル（TOML）
+# 相対パスはこのファイルのあるディレクトリを基準に解決される。
+
+[server]
+addr = ":8080"
+# access_log = "logs/access.log"
+# log = "logs/yard.log"
+
+[admin]
+# /.yard を操作できる接続元（IP / CIDR / "*"）。既定はループバックのみ。
+allow = ["127.0.0.1", "::1"]
+
+[service]
+name = "yard"
+# display_name = "yard"
+# description = "yard - tool hosting proxy"
+# user = ""
+# user_service = false
+
+# ツールごとに [[tool]] を書く。
+# args と env の中の次の文字列は起動時に置換される。
+#   {port}  yard が割り当てた空きポート
+#   {base}  公開パス（末尾スラッシュあり。例 "/memo/"）
+#   {path}  公開パス（末尾スラッシュなし。例 "/memo"）
+#   {name}  ツール名
+#   {addr}  "127.0.0.1:{port}"
+#
+# [[tool]]
+# name = "memo"
+# path = "/memo"
+# command = "tools/memo.exe"
+# args = ["-port", "{port}", "-base", "{base}"]
+# dir = "tools"
+# env = ["MEMO_DATA=data/memo"]
+# log = "logs/memo.log"
+# strip_prefix = false
+# restart = "on-failure"
+# start_timeout = "30s"
+# disabled = false
+`

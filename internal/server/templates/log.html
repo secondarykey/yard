@@ -1,0 +1,18 @@
+{{template "head" (print .Name " ログ")}}
+{{template "nav" .Page}}
+<main>
+  {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
+  <div class="bar">
+    <h1>{{.Name}}</h1>
+    <span class="muted mono">{{.File}}</span>
+    <span class="spacer"></span>
+    <a class="btn" href="?">再読込</a>
+    <a class="btn" href="?raw">テキスト</a>
+  </div>
+  <div class="panel">
+    <pre class="log mono" id="log">{{if .Truncated}}…
+{{end}}{{.Text}}</pre>
+  </div>
+</main>
+<script>const l = document.getElementById("log"); l.scrollTop = l.scrollHeight;</script>
+{{template "foot"}}

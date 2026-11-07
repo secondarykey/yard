@@ -1,0 +1,31 @@
+{{template "head" "設定"}}
+{{template "nav" .Page}}
+<main>
+  {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
+  {{if .Saved}}<div class="msg ok">保存して反映しました</div>{{end}}
+  {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
+  <form method="post" action="{{admin}}/config">
+    <div class="bar">
+      <h1>設定</h1>
+      <span class="muted mono">{{.File}}</span>
+      <span class="spacer"></span>
+      <button class="primary">保存して反映</button>
+    </div>
+    <div class="panel">
+      <textarea class="mono" name="config" spellcheck="false" autocomplete="off">{{.Text}}</textarea>
+    </div>
+  </form>
+</main>
+<script>
+document.querySelector("textarea").addEventListener("keydown", e => {
+  if (e.key === "Tab" && !e.shiftKey) {
+    e.preventDefault();
+    e.target.setRangeText("\t", e.target.selectionStart, e.target.selectionEnd, "end");
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    e.target.form.requestSubmit();
+  }
+});
+</script>
+{{template "foot"}}

@@ -1,0 +1,22 @@
+{{template "head" "yard"}}
+<header><span class="brand">yard</span></header>
+<main>
+  <div class="panel">
+  {{if .Tools}}
+  <table>
+    <tbody>
+    {{range .Tools}}
+    <tr>
+      <td><a href="{{.Path}}/"><strong>{{.Name}}</strong></a></td>
+      <td class="mono muted">{{.Path}}</td>
+      <td style="text-align: right;"><span class="state {{.State}}">{{.State}}</span></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">ツールが登録されていません</div>
+  {{end}}
+  </div>
+</main>
+{{template "foot"}}

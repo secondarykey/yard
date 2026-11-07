@@ -1,0 +1,99 @@
+{{template "head" "ツール"}}
+{{template "nav" .Page}}
+<main>
+  {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
+  {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
+  <div class="bar">
+    <h1>ツール</h1>
+    <span class="muted mono">{{.Addr}}</span>
+    <span class="spacer"></span>
+    <form method="post" action="{{admin}}/reload"><button>設定を再読込</button></form>
+  </div>
+  <div class="panel">
+  {{if .Tools}}
+  <table>
+    <thead><tr>
+      <th>名前</th><th>パス</th><th>状態</th><th>PID</th><th>ポート</th><th>稼働</th><th>再起動</th><th>エラー</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Tools}}
+    <tr data-name="{{.Name}}">
+      <td><strong>{{.Name}}</strong></td>
+      <td class="mono"><a href="{{.Path}}">{{.Path}}</a></td>
+      <td><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
+      <td class="num mono" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
+      <td class="num mono" data-f="port">{{with .Port}}{{.}}{{end}}</td>
+      <td class="num" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
+      <td class="num" data-f="restarts">{{.Restarts}}</td>
+      <td class="err" data-f="error">{{.Error}}</td>
+      <td>
+        <div class="actions">
+          <form method="post" action="{{admin}}/tools/{{.Name}}/start"><button data-a="start">起動</button></form>
+          <form method="post" action="{{admin}}/tools/{{.Name}}/stop"><button data-a="stop">停止</button></form>
+          <form method="post" action="{{admin}}/tools/{{.Name}}/restart"><button data-a="restart">再起動</button></form>
+          {{if .Log}}<a class="btn" href="{{admin}}/tools/{{.Name}}/log">ログ</a>{{end}}
+        </div>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">ツールが登録されていません</div>
+  {{end}}
+  </div>
+</main>
+<script>
+(() => {
+  const active = s => s === "running" || s === "starting" || s === "backoff";
+  const fmt = sec => {
+    sec = Math.max(0, Math.floor(sec));
+    const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600),
+          m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    if (d) return d + "d " + h + "h";
+    if (h) return h + "h " + m + "m";
+    if (m) return m + "m " + s + "s";
+    return s + "s";
+  };
+  const buttons = (row, state) => {
+    row.querySelectorAll("button[data-a]").forEach(b => {
+      const a = b.dataset.a;
+      b.disabled = state === "disabled" ||
+        (a === "start" ? active(state) : a === "stop" ? !active(state) : false);
+    });
+  };
+  const tick = () => {
+    document.querySelectorAll("[data-f=uptime]").forEach(td => {
+      const t = td.dataset.started;
+      td.textContent = t ? fmt((Date.now() - Date.parse(t)) / 1000) : "";
+    });
+  };
+  const refresh = async () => {
+    try {
+      const res = await fetch("{{admin}}/api/tools", { cache: "no-store" });
+      if (!res.ok) return;
+      const tools = await res.json();
+      if (tools.length !== document.querySelectorAll("tr[data-name]").length) { location.reload(); return; }
+      for (const t of tools) {
+        const row = document.querySelector('tr[data-name="' + CSS.escape(t.name) + '"]');
+        if (!row) { location.reload(); return; }
+        const f = n => row.querySelector("[data-f=" + n + "]");
+        f("state").textContent = t.state;
+        f("state").className = "state " + t.state;
+        f("pid").textContent = t.pid || "";
+        f("port").textContent = t.port || "";
+        f("uptime").dataset.started = t.started_at || "";
+        f("restarts").textContent = t.restarts;
+        f("error").textContent = t.error || "";
+        buttons(row, t.state);
+      }
+      tick();
+    } catch (_) {}
+  };
+  document.querySelectorAll("tr[data-name]").forEach(row =>
+    buttons(row, row.querySelector("[data-f=state]").textContent));
+  setInterval(refresh, 2000);
+  setInterval(tick, 1000);
+})();
+</script>
+{{template "foot"}}
