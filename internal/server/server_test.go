@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -66,7 +66,7 @@ func newTestServer(t *testing.T, servers string) (*Server, *httptest.Server, str
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(path, cfg, log.New(io.Discard, "", 0))
+	s, err := New(path, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestProxy(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
 		t.Errorf("server log = %q", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "access.log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
+	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log"));!strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
 		t.Errorf("access log = %q", b)
 	}

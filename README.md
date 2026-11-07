@@ -66,8 +66,8 @@ Unknown keys are errors (so that typos are caught).
 ```toml
 [yard]
 addr = ":8080"                    # listen address
-access_log = "access.log"         # access log; omit to disable
-log = "yard.log"                  # yard's own log; omit for stderr (the OS log when running as a service)
+access_log = "access.log"         # access log, one file per day (access_20261108.log); omit to disable
+log = "yard.log"                  # yard's own log, one file per day (yard_20261108.log); omit for stderr (the OS log when running as a service)
 # cert = "yard.crt"               # with key: serve HTTPS on addr (PEM files)
 # key = "yard.key"
 # redirect_addr = ":80"           # with HTTPS: plain HTTP here is redirected to https
@@ -90,7 +90,7 @@ command = "bin/memo.exe"          # executable (required); looked up in PATH if 
 args = ["-port", "{port}", "-base", "{base}"]
 dir = "bin"                       # working directory; defaults to the yard.ini directory
 env = ["MEMO_DATA=data"]          # extra environment variables
-log = "memo.log"                  # server stdout / stderr; discarded if omitted
+log = "memo.log"                  # server stdout / stderr, to this one file (not split by day); discarded if omitted
 strip_prefix = false              # if true, strip path before forwarding
 local_only = false                # if true, only requests from this machine are forwarded (others get 403)
 restart = "on-failure"            # on-failure / always / never
@@ -201,6 +201,20 @@ redirect_addr = ":80"      # optional: http://host/... → https://host/...
 Prefer this to putting a TLS proxy (nginx, Caddy, IIS...) in front of yard. yard decides who the client is from
 the connection's address only, so behind a proxy on the same machine every client looks like loopback:
 `admin.allow` and `local_only` would then let the whole network through.
+
+## Log files
+
+yard's own log (`[yard] log`) and the access log (`access_log`) switch files every day: the date goes before
+the extension, which becomes `.log` (`access.log` → `access_20261108.log`). Old files are kept; deleting them is up to you.
+When yard's own log reopens a file that already exists (yard restarted the same day), a separator line is written to it.
+
+yard's own log is written with `log/slog`:
+
+```
+2026-11-08T05:42:48+09:00 [INFO  ] started server=memo pid=1234 port=50123
+```
+
+Server output (`[[server]] log`) goes to the configured file as is.
 
 ## Access log format
 

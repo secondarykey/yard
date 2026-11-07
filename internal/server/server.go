@@ -10,7 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -27,7 +27,7 @@ import (
 // Server ties together the configuration, process management, and HTTP handlers.
 type Server struct {
 	path   string // absolute path of the configuration file
-	logger *log.Logger
+	logger *slog.Logger
 	mgr    *proc.Manager
 
 	transport *http.Transport
@@ -46,7 +46,7 @@ type Server struct {
 }
 
 // New applies the configuration and starts the servers.
-func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error) {
+func New(cfgPath string, cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	access, err := openAccessLog(cfg.Yard.AccessLog)
 	if err != nil {
 		return nil, fmt.Errorf("access log: %w", err)
@@ -125,7 +125,7 @@ func (s *Server) SaveConfig(data []byte) (notices []string, err error) {
 	if err := writeFileAtomic(s.path, data); err != nil {
 		return nil, err
 	}
-	s.logger.Printf("config saved: %s", s.path)
+	s.logger.Info("config saved", "path", s.path)
 	return s.apply(cfg)
 }
 
@@ -166,7 +166,7 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	s.mu.Unlock()
 
 	s.mgr.Apply(cfg.Servers)
-	s.logger.Printf("config applied (%d servers)", len(cfg.Servers))
+	s.logger.Info("config applied", "servers", len(cfg.Servers))
 	return notices, nil
 }
 

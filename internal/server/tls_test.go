@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"io"
 	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -80,7 +81,7 @@ func TestTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(path, cfg, log.New(io.Discard, "", 0))
+	s, err := New(path, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

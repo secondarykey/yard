@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -68,12 +69,12 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Set("X-Forwarded-Prefix", t.Path)
 		},
 		Transport: s.transport,
-		ErrorLog:  s.logger,
+		ErrorLog:  slog.NewLogLogger(s.logger.Handler(), slog.LevelWarn),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
 				return // the client disconnected
 			}
-			s.logger.Printf("[%s] proxy: %v", t.Name, err)
+			s.logger.Warn("proxy", "server", t.Name, "err", err)
 			s.renderError(w, r, http.StatusBadGateway, "Bad Gateway", t.Name)
 		},
 	}

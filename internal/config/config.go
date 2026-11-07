@@ -61,8 +61,8 @@ type Config struct {
 // Yard holds yard's own listen and log settings.
 type Yard struct {
 	Addr      string `toml:"addr" json:"addr"`             // listen address; default ":8080"
-	AccessLog string `toml:"access_log" json:"access_log"` // access log destination; disabled if empty
-	Log       string `toml:"log" json:"log"`               // yard's own log destination; stderr if empty (the OS log when running as a service)
+	AccessLog string `toml:"access_log" json:"access_log"` // access log destination, one file per day; disabled if empty
+	Log       string `toml:"log" json:"log"`               // yard's own log destination, one file per day; stderr if empty (the OS log when running as a service)
 
 	// Cert and Key are PEM files for HTTPS. With both set, addr serves HTTPS instead of HTTP.
 	// Relative paths are resolved against the configuration file's directory.
@@ -455,7 +455,8 @@ func DefaultLogDir() string {
 const Template = `# yard configuration file (TOML)
 # Relative paths are resolved against the directory of this file for command / dir,
 # and against the log directory (default %TEMP%\yard) for log / access_log.
-# Only the logs specified here are written.
+# Only the logs specified here are written. access_log and yard's log switch files every day
+# (access.log → access_20261108.log); a server's log is a single file.
 
 [yard]
 addr = ":8080"

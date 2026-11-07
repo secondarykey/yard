@@ -16,7 +16,8 @@ is not necessarily a tool. yard's own listen and log settings are `[yard]` (`con
 **Language:** everything in the repository (code, comments, messages, UI, docs) is written in English,
 except `_docs/spec.md`, which is the original Japanese specification and must not be rewritten.
 
-**The only external Go dependencies are `kardianos/service`, `BurntSushi/toml`, and `golang.org/x/sys`.**
+**The only external Go dependencies are `kardianos/service`, `BurntSushi/toml`, `golang.org/x/sys`, and
+`wenteasy/log` (slog helpers; standard library only).**
 Routing uses `net/http.ServeMux` (method patterns and wildcards), and the UI uses `html/template` + `embed`
 with no frontend build. Keep it that way.
 
@@ -27,6 +28,7 @@ main.go                 entry point, subcommands, service control, logger
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
   password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
+internal/logfile        yard's own log and the access log as one file per day (wenteasy/log RollingFileWriter)
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
@@ -75,6 +77,10 @@ _cmd/hello              server for manual testing
   key pair (so saving a broken certificate fails); `Server.TLSConfig` takes it from the current configuration
   on each handshake, so a reload renews it. Turning HTTPS on/off and `redirect_addr` need a restart.
   Keep cookies' `Secure` and `X-Forwarded-Proto` derived from `r.TLS`.
+- **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output is not.**
+  Server output stays a single file because it is passed to the process as `*os.File` (above); splitting it
+  by day would need a pipe that yard reads, which can block the server when yard falls behind.
+  The access log has no markers (`DisableMarkers`) so that it stays parseable.
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
   Windows services do not receive signals.

@@ -418,7 +418,7 @@ func (s *Server) doAction(name, action string) (proc.Status, error) {
 	if err != nil {
 		return proc.Status{}, fmt.Errorf("%s: %w", name, err)
 	}
-	s.logger.Printf("[%s] %s requested", name, action)
+	s.logger.Info(action+" requested", "server", name)
 	return p.Status(), nil
 }
 
@@ -429,7 +429,7 @@ func (s *Server) render(w http.ResponseWriter, code int, name string, data any) 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
 	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		s.logger.Printf("template %s: %v", name, err)
+		s.logger.Error("template", "name", name, "err", err)
 	}
 }
 

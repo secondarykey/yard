@@ -3,38 +3,40 @@ package server
 import (
 	"bufio"
 	"context"
-	"log"
+	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"yard/internal/proc"
+	wlog "github.com/wenteasy/log"
+
+	"yard/internal/logfile"
 )
 
 // accessLog writes Combined Log Format followed by the processing time (ms) and the target server name.
+// The file switches every day (access.log → access_20261108.log).
 //
 //	127.0.0.1 - - [07/Nov/2026:17:00:00 +0900] "GET /memo/ HTTP/1.1" 200 1234 "-" "curl/8" 12 memo
 type accessLog struct {
-	f *os.File
-	l *log.Logger
+	w *wlog.RollingFileWriter
 }
 
 func openAccessLog(name string) (*accessLog, error) {
 	if name == "" {
 		return nil, nil
 	}
-	f, err := proc.OpenLog(name)
+	// No markers: they would break tools that parse the format.
+	w, err := logfile.Daily(name, false)
 	if err != nil {
 		return nil, err
 	}
-	return &accessLog{f: f, l: log.New(f, "", 0)}, nil
+	return &accessLog{w: w}, nil
 }
 
 func (a *accessLog) Close() {
 	if a != nil {
-		a.f.Close()
+		a.w.Close()
 	}
 }
 
@@ -73,7 +75,7 @@ func (s *Server) logAccess(next http.Handler) http.Handler {
 		if err != nil {
 			host = r.RemoteAddr
 		}
-		a.l.Printf("%s - - [%s] %q %d %d %q %q %d %s",
+		fmt.Fprintf(a.w, "%s - - [%s] %q %d %d %q %q %d %s\n",
 			host,
 			start.Format("02/Jan/2006:15:04:05 -0700"),
 			r.Method+" "+r.RequestURI+" "+r.Proto,

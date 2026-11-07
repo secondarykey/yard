@@ -1,7 +1,7 @@
 package proc
 
 import (
-	"log"
+	"log/slog"
 	"reflect"
 	"sort"
 	"strings"
@@ -12,7 +12,7 @@ import (
 
 // Manager holds the Procs of all servers and looks up servers by path.
 type Manager struct {
-	logger *log.Logger
+	logger *slog.Logger
 
 	mu    sync.RWMutex
 	procs map[string]*Proc
@@ -21,7 +21,7 @@ type Manager struct {
 }
 
 // NewManager creates an empty Manager.
-func NewManager(logger *log.Logger) *Manager {
+func NewManager(logger *slog.Logger) *Manager {
 	return &Manager{logger: logger, procs: map[string]*Proc{}}
 }
 
@@ -67,7 +67,7 @@ func (m *Manager) Apply(servers []config.Server) {
 	parallel(stop, func(p *Proc) { p.Stop() })
 	for _, p := range start {
 		if err := p.Start(); err != nil {
-			m.logger.Printf("[%s] %v", p.conf.Name, err)
+			p.logger.Error("start", "err", err)
 		}
 	}
 }

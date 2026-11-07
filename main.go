@@ -11,23 +11,25 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
+	wlog "github.com/wenteasy/log"
 
 	"yard/internal/config"
-	"yard/internal/proc"
+	"yard/internal/logfile"
 	"yard/internal/server"
 )
 
@@ -102,6 +104,7 @@ func run() error {
 	}
 	defer closeLog()
 	prg.logger = logger
+	slog.SetDefault(logger)
 	return svc.Run()
 }
 
@@ -194,46 +197,89 @@ func writeTemplate(path string) error {
 
 // newLogger decides where yard's own log goes.
 //
-//   - If yard.log is set, to that file (and also to stderr when in the foreground).
+//   - If yard.log is set, to that file, one per day (and also to stderr when in the foreground).
 //   - Otherwise to stderr in the foreground, or to the OS log when running as a service
 //     (the Event Log on Windows, syslog/journald on Linux).
-func newLogger(svc service.Service, cfg *config.Config) (*log.Logger, func(), error) {
-	var w io.Writer = os.Stderr
+func newLogger(svc service.Service, cfg *config.Config) (*slog.Logger, func(), error) {
+	var hs []slog.Handler
 	closer := func() {}
-	if !service.Interactive() {
-		if sl, err := svc.Logger(nil); err == nil {
-			w = serviceWriter{sl}
-		}
-	}
-	flags := log.LstdFlags
 	if cfg.Yard.Log != "" {
-		f, err := proc.OpenLog(cfg.Yard.Log)
+		w, err := logfile.Daily(cfg.Yard.Log, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("log: %w", err)
 		}
-		closer = func() { f.Close() }
-		if service.Interactive() {
-			w = io.MultiWriter(os.Stderr, f)
-		} else {
-			w = f
-		}
-	} else if !service.Interactive() {
-		flags = 0 // the OS log adds timestamps
+		closer = func() { w.Close() }
+		hs = append(hs, wlog.NewSimpleHandler(w, nil))
 	}
-	return log.New(w, "", flags), closer, nil
+	if service.Interactive() {
+		hs = append(hs, wlog.NewSimpleHandler(os.Stderr, nil))
+	} else if len(hs) == 0 {
+		if sl, err := svc.Logger(nil); err == nil {
+			hs = append(hs, newServiceHandler(sl))
+		} else {
+			hs = append(hs, wlog.NewSimpleHandler(os.Stderr, nil))
+		}
+	}
+	return slog.New(slog.NewMultiHandler(hs...)), closer, nil
 }
 
-type serviceWriter struct{ l service.Logger }
+// serviceHandler sends records to the OS log, keeping their level
+// (Warn → warning, Error and above → error). The OS log adds its own timestamps.
+type serviceHandler struct {
+	l     service.Logger
+	mu    *sync.Mutex
+	buf   *bytes.Buffer
+	inner slog.Handler // formats into buf
+}
 
-func (w serviceWriter) Write(p []byte) (int, error) {
-	return len(p), w.l.Info(strings.TrimRight(string(p), "\n"))
+func newServiceHandler(l service.Logger) slog.Handler {
+	buf := new(bytes.Buffer)
+	return &serviceHandler{l: l, mu: new(sync.Mutex), buf: buf, inner: wlog.NewSimpleHandler(buf, nil)}
+}
+
+func (h *serviceHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return h.inner.Enabled(ctx, l)
+}
+
+func (h *serviceHandler) Handle(ctx context.Context, r slog.Record) error {
+	r.Time = time.Time{} // the OS log has its own
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.buf.Reset()
+	if err := h.inner.Handle(ctx, r); err != nil {
+		return err
+	}
+	line := strings.TrimRight(h.buf.String(), "\n")
+	if _, rest, ok := strings.Cut(line, "] "); ok { // drop "[INFO  ] "; the OS log has the level
+		line = rest
+	}
+	switch {
+	case r.Level >= slog.LevelError:
+		return h.l.Error(line)
+	case r.Level >= slog.LevelWarn:
+		return h.l.Warning(line)
+	default:
+		return h.l.Info(line)
+	}
+}
+
+func (h *serviceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	nh := *h
+	nh.inner = h.inner.WithAttrs(attrs)
+	return &nh
+}
+
+func (h *serviceHandler) WithGroup(name string) slog.Handler {
+	nh := *h
+	nh.inner = h.inner.WithGroup(name)
+	return &nh
 }
 
 // program implements service.Interface.
 type program struct {
 	cfgPath string
 	cfg     *config.Config
-	logger  *log.Logger
+	logger  *slog.Logger
 
 	srv      *server.Server
 	http     *http.Server
@@ -269,7 +315,7 @@ func (p *program) Start(service.Service) error {
 		Handler:           srv.Handler(),
 		TLSConfig:         srv.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          p.logger,
+		ErrorLog:          slog.NewLogLogger(p.logger.Handler(), slog.LevelWarn),
 		// No deadlines on reading/writing bodies, so that long-running responses
 		// from servers (SSE, WebSocket, large downloads) are not cut off.
 	}
@@ -277,7 +323,7 @@ func (p *program) Start(service.Service) error {
 	if p.http.TLSConfig != nil {
 		scheme = "https"
 	}
-	p.logger.Printf("listening on %s (%s, config: %s, logdir: %s, %d servers)", ln.Addr(), scheme, p.cfgPath, p.cfg.LogDir, len(p.cfg.Servers))
+	p.logger.Info("listening", "addr", ln.Addr(), "scheme", scheme, "config", p.cfgPath, "logdir", p.cfg.LogDir, "servers", len(p.cfg.Servers))
 	go func() {
 		var err error
 		if p.http.TLSConfig != nil {
@@ -286,7 +332,7 @@ func (p *program) Start(service.Service) error {
 			err = p.http.Serve(ln)
 		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			p.logger.Printf("serve: %v", err)
+			p.logger.Error("serve", "err", err)
 		}
 	}()
 
@@ -294,12 +340,12 @@ func (p *program) Start(service.Service) error {
 		p.redirect = &http.Server{
 			Handler:           server.RedirectHandler(p.cfg.Yard.Addr),
 			ReadHeaderTimeout: 10 * time.Second,
-			ErrorLog:          p.logger,
+			ErrorLog:          slog.NewLogLogger(p.logger.Handler(), slog.LevelWarn),
 		}
-		p.logger.Printf("redirecting http on %s to https", redirectLn.Addr())
+		p.logger.Info("redirecting http to https", "addr", redirectLn.Addr())
 		go func() {
 			if err := p.redirect.Serve(redirectLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				p.logger.Printf("serve redirect: %v", err)
+				p.logger.Error("serve redirect", "err", err)
 			}
 		}()
 	}
@@ -320,7 +366,7 @@ func (p *program) Stop(service.Service) error {
 	if p.srv != nil {
 		p.srv.Close()
 	}
-	p.logger.Printf("stopped")
+	p.logger.Info("stopped")
 	return nil
 }
 

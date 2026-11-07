@@ -137,7 +137,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !cfg.Admin.CheckPassword(password) {
 		time.Sleep(loginDelay)
-		s.logger.Printf("login failed from %s", r.RemoteAddr)
+		s.logger.Warn("login failed", "remote", r.RemoteAddr)
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "wrong password"})
 		return
 	}

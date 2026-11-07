@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -65,7 +65,7 @@ type Status struct {
 // Proc is the process of one server.
 type Proc struct {
 	conf   config.Server
-	logger *log.Logger
+	logger *slog.Logger // with server=<name>
 
 	mu        sync.Mutex
 	state     State
@@ -81,8 +81,8 @@ type Proc struct {
 }
 
 // New creates a Proc without starting it.
-func New(t config.Server, logger *log.Logger) *Proc {
-	p := &Proc{conf: t, logger: logger, state: StateStopped, ready: make(chan struct{})}
+func New(t config.Server, logger *slog.Logger) *Proc {
+	p := &Proc{conf: t, logger: logger.With("server", t.Name), state: StateStopped, ready: make(chan struct{})}
 	if t.Disabled {
 		p.state = StateDisabled
 	}
@@ -229,10 +229,10 @@ func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 		case p.conf.Restart == config.RestartNever,
 			p.conf.Restart == config.RestartOnFailure && !failed:
 			if failed {
-				p.logger.Printf("[%s] exited: %v (no restart)", p.conf.Name, err)
+				p.logger.Warn("exited (no restart)", "err", err)
 				p.setState(StateFailed)
 			} else {
-				p.logger.Printf("[%s] exited normally", p.conf.Name)
+				p.logger.Info("exited normally")
 			}
 			return
 		}
@@ -243,7 +243,7 @@ func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 		if time.Since(started) > stableAfter {
 			backoff = minBackoff
 		}
-		p.logger.Printf("[%s] exited: %v; restarting in %s", p.conf.Name, err, backoff)
+		p.logger.Warn("exited; restarting", "err", err, "after", backoff)
 		p.setState(StateBackoff)
 		select {
 		case <-ctx.Done():
@@ -287,7 +287,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	p.pid = cmd.Process.Pid
 	p.startedAt = time.Now()
 	p.mu.Unlock()
-	p.logger.Printf("[%s] started pid=%d port=%d", p.conf.Name, cmd.Process.Pid, port)
+	p.logger.Info("started", "pid", cmd.Process.Pid, "port", port)
 	if out != nil {
 		fmt.Fprintf(out, "\n=== yard: %s started pid=%d port=%d at %s ===\n",
 			p.conf.Name, cmd.Process.Pid, port, time.Now().Format(time.RFC3339))
@@ -312,7 +312,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 			return p.terminate(tree, exited)
 		}
 		if !ok {
-			p.logger.Printf("[%s] port %d did not open within %s", p.conf.Name, port, p.conf.StartTimeout)
+			p.logger.Warn("port did not open in time", "port", port, "timeout", p.conf.StartTimeout)
 			p.terminate(tree, exited)
 			return nil, fmt.Errorf("port %d did not open within %s (does the server listen on {port}?)", port, p.conf.StartTimeout)
 		}
@@ -322,7 +322,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	p.setStateLocked(StateRunning)
 	p.lastErr = ""
 	p.mu.Unlock()
-	p.logger.Printf("[%s] ready on port %d", p.conf.Name, port)
+	p.logger.Info("ready", "port", port)
 
 	select {
 	case waitErr = <-exited:
@@ -334,7 +334,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 
 // terminate stops gracefully, and kills if it does not exit in time.
 func (p *Proc) terminate(tree *processTree, exited <-chan error) (*int, error) {
-	p.logger.Printf("[%s] stopping", p.conf.Name)
+	p.logger.Info("stopping")
 	if err := tree.Interrupt(); err == nil {
 		select {
 		case <-exited:
@@ -343,12 +343,12 @@ func (p *Proc) terminate(tree *processTree, exited <-chan error) (*int, error) {
 		}
 	}
 	if err := tree.Kill(); err != nil {
-		p.logger.Printf("[%s] kill: %v", p.conf.Name, err)
+		p.logger.Error("kill", "err", err)
 	}
 	select {
 	case <-exited:
 	case <-time.After(stopTimeout):
-		p.logger.Printf("[%s] did not exit after kill", p.conf.Name)
+		p.logger.Error("did not exit after kill")
 	}
 	return nil, nil
 }
