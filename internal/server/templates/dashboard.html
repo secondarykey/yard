@@ -13,20 +13,20 @@
   {{if .Servers}}
   <table>
     <thead><tr>
-      <th>Name</th><th>Path</th><th>State</th><th>PID</th><th>Port</th><th>Uptime</th><th>Restarts</th><th>Error</th><th></th>
+      <th>Name</th><th>Path</th><th class="center">State</th><th class="center">PID</th><th class="center">Port</th><th class="center">Uptime</th><th class="center">Restarts</th><th>Error</th><th class="center"></th>
     </tr></thead>
     <tbody>
     {{range .Servers}}
     <tr data-name="{{.Name}}">
       <td><strong>{{.Name}}</strong></td>
       <td class="mono"><a href="{{.Path}}">{{.Path}}</a>{{if .LocalOnly}} <span class="tag" title="local_only">local only</span>{{end}}</td>
-      <td><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
-      <td class="num mono" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
-      <td class="num mono" data-f="port">{{with .Port}}{{.}}{{end}}</td>
-      <td class="num" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
-      <td class="num" data-f="restarts">{{.Restarts}}</td>
+      <td class="center"><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
+      <td class="num mono center" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
+      <td class="num mono center" data-f="port">{{with .Port}}{{.}}{{end}}</td>
+      <td class="num center" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
+      <td class="num center" data-f="restarts">{{.Restarts}}</td>
       <td class="err" data-f="error">{{.Error}}</td>
-      <td>
+      <td class="center">
         <div class="actions">
           <form method="post" action="{{admin}}/servers/{{.Name}}/start"><button data-a="start">Start</button></form>
           <form method="post" action="{{admin}}/servers/{{.Name}}/stop"><button data-a="stop">Stop</button></form>
