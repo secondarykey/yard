@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>matrix - yard</title>
+<style>
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<script>
+(() => {
+  const SIZE = 18;      // cell size in CSS pixels
+  const LEVELS = 24;    // brightness steps of the trail (plus one for the head)
+  const FLICKER = 1.5;  // glyph changes per lit cell per second (roughly)
+
+  // Half-width katakana (drawn mirrored) followed by digits and a few symbols.
+  const glyphs = [];
+  for (let c = 0xFF66; c <= 0xFF9D; c++) glyphs.push(String.fromCharCode(c));
+  const kana = glyphs.length;
+  for (const ch of "0123456789Z:.=*+-<>|") glyphs.push(ch);
+
+  const canvas = document.getElementById("rain");
+  const ctx = canvas.getContext("2d");
+  let dpr = 0, px, cols, rows, atlas, bright, decay, glyph, head, streams;
+
+  // Pre-render every glyph at every brightness into one sheet, so a frame is just drawImage calls.
+  const buildAtlas = () => {
+    atlas = document.createElement("canvas");
+    atlas.width = glyphs.length * px;
+    atlas.height = (LEVELS + 1) * px;
+    const a = atlas.getContext("2d");
+    a.font = `${Math.round(px * 0.92)}px "MS Gothic", "Hiragino Kaku Gothic ProN", "Noto Sans Mono CJK JP", monospace`;
+    a.textAlign = "center";
+    a.textBaseline = "middle";
+    for (let l = 0; l <= LEVELS; l++) {
+      if (l === LEVELS) {
+        a.fillStyle = "#eaffea";
+        a.shadowColor = "#7dff9a";
+        a.shadowBlur = px * 0.35;
+      } else {
+        const t = (l + 1) / LEVELS;
+        a.fillStyle = `rgb(${Math.round(30 * t * t * t)}, ${Math.round(255 * Math.pow(t, 1.1))}, ${Math.round(80 * t * t)})`;
+        a.shadowBlur = 0;
+      }
+      glyphs.forEach((g, i) => {
+        a.save();
+        a.translate(i * px + px / 2, l * px + px / 2);
+        if (i < kana) a.scale(-1, 1);
+        a.fillText(g, 0, 0);
+        a.restore();
+      });
+    }
+  };
+
+  const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+
+  const spawn = (s, initial) => {
+    s.speed = rand(6, 22);                       // rows per second
+    s.len = Math.round(rand(6, Math.max(8, rows * 0.9)));
+    s.y = initial ? rand(-rows, rows) : -rand(0, rows * 0.6);
+    return s;
+  };
+
+  const resize = () => {
+    const d = window.devicePixelRatio || 1;
+    if (d !== dpr) { dpr = d; px = Math.round(SIZE * dpr); buildAtlas(); }
+    canvas.width = Math.round(innerWidth * dpr);
+    canvas.height = Math.round(innerHeight * dpr);
+    cols = Math.ceil(canvas.width / px);
+    rows = Math.ceil(canvas.height / px);
+    const n = cols * rows;
+    bright = new Float32Array(n);
+    decay = new Float32Array(n);
+    glyph = new Uint8Array(n);
+    head = new Uint8Array(n);
+    streams = [];
+    for (let c = 0; c < cols; c++) {
+      streams.push(spawn({ col: c }, true));
+      if (Math.random() < 0.35) streams.push(spawn({ col: c }, false));
+    }
+  };
+
+  const update = dt => {
+    const n = bright.length;
+    const p = FLICKER * dt;
+    for (let i = 0; i < n; i++) {
+      head[i] = 0;
+      if (bright[i] <= 0) continue;
+      bright[i] -= decay[i] * dt;
+      if (Math.random() < p) glyph[i] = Math.random() * glyphs.length | 0;
+    }
+    for (const s of streams) {
+      const prev = Math.floor(s.y);
+      s.y += s.speed * dt;
+      const cur = Math.floor(s.y);
+      for (let r = Math.max(prev + 1, 0); r <= cur && r < rows; r++) {
+        const i = r * cols + s.col;
+        bright[i] = 1;
+        decay[i] = s.speed / s.len;
+        glyph[i] = Math.random() * glyphs.length | 0;
+      }
+      if (cur >= 0 && cur < rows) head[cur * cols + s.col] = 1;
+      if (s.y - s.len > rows) spawn(s, false);
+    }
+  };
+
+  const draw = () => {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let r = 0, i = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++, i++) {
+        const b = bright[i];
+        if (b <= 0) continue;
+        const l = head[i] ? LEVELS : Math.min(LEVELS - 1, b * LEVELS | 0);
+        ctx.drawImage(atlas, glyph[i] * px, l * px, px, px, c * px, r * px, px, px);
+      }
+    }
+  };
+
+  let last = 0;
+  const frame = t => {
+    const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+    last = t;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  };
+
+  addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

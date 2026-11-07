@@ -218,7 +218,7 @@ func TestAdmin(t *testing.T) {
 	}
 
 	// Pages
-	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/servers/echo/log"} {
+	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/servers/echo/log", "/.yard/matrix"} {
 		if code, body, _ := get(t, ts.URL+u); code != 200 || !strings.Contains(body, "<html") {
 			t.Errorf("%s = %d", u, code)
 		}

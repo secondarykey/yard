@@ -133,6 +133,7 @@ A new port is picked on each start. Child processes created by the server are st
 | `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
 | `GET /.yard/config` | Edit the configuration file. Validated and applied on save |
 | `GET /.yard/servers/{name}/log` | Server output (last 256KB). `?raw` for plain text |
+| `GET /.yard/matrix` | Digital rain (just for fun) |
 | `GET /.yard/health` | Whether yard is alive and the state of each server (**no client restriction**) |
 | `GET /.yard/health/{name}` | 200 if the server is running, otherwise 503 (**no client restriction**) |
 | `GET /.yard/api/servers` | Server states (JSON) |

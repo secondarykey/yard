@@ -49,6 +49,7 @@ const logTailBytes = 256 << 10
 //	GET  /config                      edit the configuration file
 //	POST /config                      validate, save, and apply
 //	POST /reload                      reread and apply the configuration file
+//	GET  /matrix                      digital rain (just for fun)
 //	GET  /api/servers                 JSON
 //	POST /api/servers/{name}/{action} JSON
 //	POST /api/reload                  JSON
@@ -64,6 +65,7 @@ func (s *Server) adminHandler() http.Handler {
 	priv.HandleFunc("GET "+a+"/config", s.handleConfigPage)
 	priv.HandleFunc("POST "+a+"/config", s.handleConfigSave)
 	priv.HandleFunc("POST "+a+"/reload", s.handleReload)
+	priv.HandleFunc("GET "+a+"/matrix", s.handleMatrix)
 	priv.HandleFunc("GET "+a+"/api/servers", s.apiServers)
 	priv.HandleFunc("POST "+a+"/api/servers/{name}/{action}", s.apiAction)
 	priv.HandleFunc("POST "+a+"/api/reload", s.apiReload)
@@ -240,6 +242,10 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Saved, d.Notices = true, notices
 	s.render(w, http.StatusOK, "config.html", d)
+}
+
+func (s *Server) handleMatrix(w http.ResponseWriter, r *http.Request) {
+	s.render(w, http.StatusOK, "matrix.html", nil)
 }
 
 // ---- JSON API ----
