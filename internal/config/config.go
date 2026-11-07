@@ -117,6 +117,7 @@ type Server struct {
 
 	StripPrefix  bool     `toml:"strip_prefix" json:"strip_prefix"`   // strip path before forwarding
 	LocalOnly    bool     `toml:"local_only" json:"local_only"`       // forward only requests from this machine (loopback)
+	HTTPS        bool     `toml:"https" json:"https"`                 // the server speaks HTTPS; its certificate is not verified
 	Restart      string   `toml:"restart" json:"restart"`             // on-failure (default) / always / never
 	StartTimeout Duration `toml:"start_timeout" json:"start_timeout"` // how long to wait for the port to open; default 30s
 	Disabled     bool     `toml:"disabled" json:"disabled"`           // do not start
@@ -498,6 +499,7 @@ name = "yard"
 # log = "memo.log"
 # strip_prefix = false
 # local_only = false
+# https = false
 # restart = "on-failure"
 # start_timeout = "30s"
 # disabled = false

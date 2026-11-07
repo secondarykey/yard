@@ -93,6 +93,7 @@ env = ["MEMO_DATA=data"]          # extra environment variables
 log = "memo.log"                  # server stdout / stderr, to this one file (not split by day); discarded if omitted
 strip_prefix = false              # if true, strip path before forwarding
 local_only = false                # if true, only requests from this machine are forwarded (others get 403)
+https = false                     # if true, the server speaks HTTPS (its certificate is not verified)
 restart = "on-failure"            # on-failure / always / never
 start_timeout = "30s"             # how long to wait for the port to open
 disabled = false                  # if true, do not start
@@ -112,7 +113,10 @@ The environment variables `YARD_PORT` / `YARD_BASE` / `YARD_NAME` are always pas
 
 ### Requirements for servers
 
-- Listen on the given port (reachable at `127.0.0.1`).
+- Listen on the given port (reachable at `127.0.0.1`), with plain HTTP unless `https = true`.
+  Plain HTTP is the simpler choice: the connection from yard stays on this machine, and HTTPS for clients
+  is yard's own (`[yard] cert` / `key`). Use `https = true` only for a server that cannot turn HTTPS off;
+  yard then connects with TLS and accepts any certificate, since none names `127.0.0.1:{port}`.
 - With `strip_prefix = false` (the default), work under the public path (`{base}`).
   With `strip_prefix = true` a server that runs at `/` is fine, but absolute links in HTML are not rewritten
   (only the `Location` header gets the public path prepended again).

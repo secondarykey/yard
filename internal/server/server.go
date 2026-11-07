@@ -70,6 +70,10 @@ func New(cfgPath string, cfg *config.Config, logger *slog.Logger) (*Server, erro
 			MaxIdleConnsPerHost:   16,
 			IdleConnTimeout:       90 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
+			// Only for servers with https. The target is 127.0.0.1:{port}, which no certificate
+			// names, and the connection never leaves this machine, so the certificate is not verified.
+			// Setting TLSClientConfig also keeps the transport on HTTP/1.1, which upgrades need.
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 	s.mgr.Apply(cfg.Servers)

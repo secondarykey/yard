@@ -43,6 +43,7 @@ func Format(c *Config) []byte {
 			str("log", s.Log),
 			flag("strip_prefix", s.StripPrefix),
 			flag("local_only", s.LocalOnly),
+			flag("https", s.HTTPS),
 			str("restart", s.Restart),
 			str("start_timeout", timeout),
 			flag("disabled", s.Disabled))

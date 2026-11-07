@@ -16,7 +16,7 @@ import (
 //
 // The Host header is passed through unchanged, and X-Forwarded-For / -Host / -Proto and
 // X-Forwarded-Prefix (the server's path) are added. Upgrades such as WebSocket are
-// relayed as is by httputil.ReverseProxy.
+// relayed as is by httputil.ReverseProxy. A server with https is reached over TLS.
 //
 // A server with local_only gets only requests from this machine; others get 403.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +60,11 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(&url.URL{Scheme: "http", Host: target})
+			scheme := "http"
+			if t.HTTPS {
+				scheme = "https"
+			}
+			pr.SetURL(&url.URL{Scheme: scheme, Host: target})
 			if t.StripPrefix && t.Path != "/" {
 				stripPrefix(pr.Out.URL, pr.In.URL, t.Path)
 			}

@@ -21,6 +21,7 @@ func TestFormatRoundTrip(t *testing.T) {
 				Env:          []string{`DATA=D:\data`, "LINE=a\nb"},
 				StripPrefix:  true,
 				LocalOnly:    true,
+				HTTPS:        true,
 				Restart:      RestartAlways,
 				StartTimeout: Duration{90 * time.Second},
 				Disabled:     true,

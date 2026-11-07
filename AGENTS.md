@@ -77,6 +77,8 @@ _cmd/hello              server for manual testing
   key pair (so saving a broken certificate fails); `Server.TLSConfig` takes it from the current configuration
   on each handshake, so a reload renews it. Turning HTTPS on/off and `redirect_addr` need a restart.
   Keep cookies' `Secure` and `X-Forwarded-Proto` derived from `r.TLS`.
+  A server's own `https` is only how yard reaches it: yard connects over TLS without verifying the
+  certificate (the target is `127.0.0.1:{port}`), and it does not change `X-Forwarded-Proto`.
 - **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output is not.**
   Server output stays a single file because it is passed to the process as `*os.File` (above); splitting it
   by day would need a pipe that yard reads, which can block the server when yard falls behind.

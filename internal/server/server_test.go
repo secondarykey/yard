@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,7 +44,21 @@ func helper() {
 			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"))
 	})
 	fmt.Println("helper up")
-	if err := http.ListenAndServe("127.0.0.1:"+os.Getenv("YARD_PORT"), mux); err != nil {
+	addr := "127.0.0.1:" + os.Getenv("YARD_PORT")
+	if os.Getenv("YARD_TEST_TLS") == "1" {
+		// HTTPS with httptest's self-signed certificate.
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		ts := httptest.NewUnstartedServer(mux)
+		ts.Listener.Close()
+		ts.Listener = ln
+		ts.StartTLS()
+		select {}
+	}
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -152,7 +167,7 @@ func TestProxy(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
 		t.Errorf("server log = %q", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log"));!strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
+	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
 		t.Errorf("access log = %q", b)
 	}
@@ -338,5 +353,31 @@ func TestLocalOnly(t *testing.T) {
 	p, _ := s.mgr.Get("echo")
 	if !p.Status().LocalOnly {
 		t.Error("status should report local_only")
+	}
+}
+
+func TestHTTPSServer(t *testing.T) {
+	const tlsServer = `
+[[server]]
+name = "echo"
+path = "/echo"
+command = "EXE"
+env = ["YARD_TEST_HELPER=1", "YARD_TEST_TLS=1"]
+log = "echo.log"
+start_timeout = "10s"
+https = true
+`
+	_, ts, dir := newTestServer(t, tlsServer)
+	code, body, _ := get(t, ts.URL+"/echo/a")
+	if code != 200 || !strings.Contains(body, "path=/echo/a ") ||
+		!strings.Contains(body, "host="+strings.TrimPrefix(ts.URL, "http://")) {
+		b, _ := os.ReadFile(filepath.Join(dir, "echo.log"))
+		t.Fatalf("code = %d, body = %s, log = %s", code, body, b)
+	}
+
+	// Without https the same server cannot be reached.
+	_, ts, _ = newTestServer(t, strings.Replace(tlsServer, "https = true", "", 1))
+	if code, body, _ := get(t, ts.URL+"/echo/a"); code == 200 && strings.Contains(body, "path=") {
+		t.Errorf("plain HTTP to an HTTPS server = %d %s", code, body)
 	}
 }
