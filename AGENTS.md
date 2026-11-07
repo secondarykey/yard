@@ -70,6 +70,10 @@ _cmd/hello              server for manual testing
   servers do not survive even if yard is killed. On Unix, SIGTERM → SIGKILL to the process group.
 - **Applying the configuration (`Manager.Apply`) is diff-based.** Servers whose `config.Server` is equal under
   `reflect.DeepEqual` keep running. Do not give `config.Server` non-comparable values (functions, etc.).
+  A changed server is recreated, and started again unless the old one was `stopped`.
+- **Enabled / Log on the server list edit yard.ini by one line (`config.SetServerFlag`).** That keeps comments.
+  The result must decode to exactly the intended configuration; otherwise it falls back to `config.Format`.
+  The read-modify-write runs under the save lock (`Server.EditConfig`).
 - **The form editor works on `config.Decode`, not `config.Parse`.** It must show and write back the values
   as written (relative paths, empty = default), never the normalized ones. `config.Format` writes them out;
   a key added to `config.Server` etc. needs a json tag, a line in `Format`, and a field in `config.html`.

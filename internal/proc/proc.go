@@ -57,7 +57,8 @@ type Status struct {
 	Restarts  int       `json:"restarts"`
 	ExitCode  *int      `json:"exit_code,omitempty"`
 	Error     string    `json:"error,omitempty"`
-	Log       bool      `json:"log"`
+	Log       bool      `json:"log"`     // log is on in the configuration
+	HasLog    bool      `json:"has_log"` // there is a log file to show (LogFile)
 	LocalOnly bool      `json:"local_only"`
 }
 
@@ -103,7 +104,8 @@ func (p *Proc) Status() Status {
 		Restarts:  p.restarts,
 		ExitCode:  p.exitCode,
 		Error:     p.lastErr,
-		Log:       p.logFile != "",
+		Log:       p.conf.Log,
+		HasLog:    p.logFile != "",
 		LocalOnly: p.conf.LocalOnly,
 	}
 	if p.state == StateStarting || p.state == StateRunning {

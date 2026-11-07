@@ -140,7 +140,7 @@ A new port is picked on each start. Child processes created by the server are st
 
 | URL | Description |
 |---|---|
-| `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
+| `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart; turn `disabled` / `log` on or off) |
 | `GET /.yard/config` | Edit the configuration as a form (`?view=text` for the raw file). Validated and applied on save. Saving from the form rewrites yard.ini without its comments |
 | `GET /.yard/servers/{name}/log` | Server output of the current or last start (last 256KB). `?raw` for plain text |
 | `GET /.yard/matrix` | Digital rain (just for fun; also the login page) |
@@ -150,11 +150,16 @@ A new port is picked on each start. Child processes created by the server are st
 | `GET /.yard/health/{name}` | 200 if the server is running, otherwise 503 (**no client restriction**) |
 | `GET /.yard/api/servers` | Server states (JSON) |
 | `POST /.yard/api/servers/{name}/{start\|stop\|restart}` | Control a server (JSON) |
+| `POST /.yard/api/servers/{name}/{enable\|disable\|log-on\|log-off}` | Set the server's `disabled` / `log` in yard.ini and apply it (JSON) |
 | `POST /.yard/api/reload` | Reload and apply yard.ini |
 | `GET /.yard/api/config` | Contents of yard.ini |
 | `PUT /.yard/api/config` | Validate, save, and apply new contents (TOML, or JSON with the same keys when `Content-Type: application/json`) |
 
 When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
+A changed server that was stopped stays stopped.
+
+Enabled and Log in the server list are saved to yard.ini. Only that one line is changed, so comments are kept.
+Disabling a server stops it, and turning its log on or off restarts it if it is running.
 Changes to `yard.addr` / `yard.log` / `yard.redirect_addr` / `[service]`, and turning HTTPS on or off, require restarting yard
 (`[service]` requires re-registering). A renewed certificate is picked up by a reload.
 

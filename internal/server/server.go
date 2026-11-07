@@ -120,7 +120,25 @@ func (s *Server) ReadConfig() ([]byte, error) {
 func (s *Server) SaveConfig(data []byte) (notices []string, err error) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	return s.saveLocked(data)
+}
 
+// EditConfig reads the configuration file, changes it with edit, and saves it like SaveConfig.
+// Nothing else can save in between.
+func (s *Server) EditConfig(edit func([]byte) ([]byte, error)) (notices []string, err error) {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	data, err := s.ReadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if data, err = edit(data); err != nil {
+		return nil, err
+	}
+	return s.saveLocked(data)
+}
+
+func (s *Server) saveLocked(data []byte) (notices []string, err error) {
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	cfg, err := config.Parse(data, filepath.Dir(s.path), s.Config().LogDir)
 	if err != nil {

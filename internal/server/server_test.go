@@ -220,6 +220,58 @@ func TestRestartOnFailure(t *testing.T) {
 	}
 }
 
+// enable / disable / log-on / log-off change yard.ini and apply it.
+func TestServerSettings(t *testing.T) {
+	s, ts, dir := newTestServer(t, "# my comment\n"+echoServer)
+	post := func(action string) proc.Status {
+		t.Helper()
+		res, err := http.Post(ts.URL+"/.yard/api/servers/echo/"+action, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != 200 {
+			b, _ := io.ReadAll(res.Body)
+			t.Fatalf("%s = %d %s", action, res.StatusCode, b)
+		}
+		p, _ := s.mgr.Get("echo")
+		return p.Status()
+	}
+	ini := func() string {
+		b, _ := os.ReadFile(filepath.Join(dir, config.FileName))
+		return string(b)
+	}
+	p, _ := s.mgr.Get("echo")
+	waitState(t, p, proc.StateRunning)
+
+	// A stopped server stays stopped when its log is turned off.
+	post("stop")
+	if st := post("log-off"); st.State != proc.StateStopped || st.Log {
+		t.Errorf("after log-off: %+v", st)
+	}
+	if c := ini(); !strings.Contains(c, "log = false") || !strings.Contains(c, "# my comment") {
+		t.Errorf("yard.ini =\n%s", c)
+	}
+
+	if st := post("disable"); st.State != proc.StateDisabled {
+		t.Errorf("after disable: %+v", st)
+	}
+	post("enable")
+	p, _ = s.mgr.Get("echo")
+	first := waitState(t, p, proc.StateRunning)
+
+	// Turning the log on restarts a running server, which then writes {name}-{pid}.log.
+	post("log-on")
+	p, _ = s.mgr.Get("echo")
+	st := waitState(t, p, proc.StateRunning)
+	if st.PID == first.PID || !st.Log || p.LogFile() != filepath.Join(dir, fmt.Sprintf("echo-%d.log", st.PID)) {
+		t.Errorf("after log-on: %+v, %s", st, p.LogFile())
+	}
+	if c := ini(); !strings.Contains(c, "log = true") || strings.Contains(c, "disabled = true") {
+		t.Errorf("yard.ini =\n%s", c)
+	}
+}
+
 func TestAdmin(t *testing.T) {
 	s, ts, dir := newTestServer(t, echoServer)
 	p, _ := s.mgr.Get("echo")

@@ -47,7 +47,7 @@ const logTailBytes = 256 << 10
 //	GET  /health                      whether yard is alive and each server's state (no client restriction)
 //	GET  /health/{name}               200 if the server is running, otherwise 503 (no client restriction)
 //	GET  /                            server list
-//	POST /servers/{name}/{action}     start / stop / restart
+//	POST /servers/{name}/{action}     start / stop / restart, or enable / disable / log-on / log-off (saved to yard.ini)
 //	GET  /servers/{name}/log          server output (tail)
 //	GET  /config                      edit the configuration file
 //	POST /config                      validate, save, and apply
@@ -406,6 +406,22 @@ func (s *Server) doAction(name, action string) (proc.Status, error) {
 	}
 	var err error
 	switch action {
+	case "enable", "disable", "log-on", "log-off":
+		// Settings in yard.ini: change the one line and apply it like a save.
+		key, v := config.KeyDisabled, action == "disable"
+		if action == "log-on" || action == "log-off" {
+			key, v = config.KeyLog, action == "log-on"
+		}
+		if _, err := s.EditConfig(func(b []byte) ([]byte, error) {
+			return config.SetServerFlag(b, name, key, v)
+		}); err != nil {
+			return proc.Status{}, fmt.Errorf("%s: %w", name, err)
+		}
+		s.logger.Info(action+" requested", "server", name)
+		if p, ok = s.mgr.Get(name); !ok {
+			return proc.Status{}, fmt.Errorf("%w: %s", errUnknownServer, name)
+		}
+		return p.Status(), nil
 	case "start":
 		err = p.Start()
 	case "stop":

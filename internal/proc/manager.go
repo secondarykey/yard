@@ -27,6 +27,8 @@ func NewManager(logger *slog.Logger) *Manager {
 
 // Apply applies the configuration. Unchanged servers keep running,
 // changed ones are recreated, removed ones are stopped, and new ones are started.
+// A changed server that was stopped (from the list, or by exiting normally) stays stopped,
+// so that changing a setting such as log does not start it.
 func (m *Manager) Apply(servers []config.Server) {
 	m.mu.Lock()
 	old := m.procs
@@ -39,12 +41,14 @@ func (m *Manager) Apply(servers []config.Server) {
 			next[t.Name] = p
 			continue
 		}
+		stopped := false
 		if p, ok := old[t.Name]; ok {
 			stop = append(stop, p)
+			stopped = p.Status().State == StateStopped
 		}
 		p := New(t, m.logger)
 		next[t.Name] = p
-		if !t.Disabled {
+		if !t.Disabled && !stopped {
 			start = append(start, p)
 		}
 	}
