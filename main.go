@@ -204,7 +204,11 @@ func newLogger(svc service.Service, cfg *config.Config) (*slog.Logger, func(), e
 	var hs []slog.Handler
 	closer := func() {}
 	if cfg.Yard.Log != "" {
-		w, err := logfile.Daily(cfg.Yard.Log, true)
+		w, err := logfile.Daily(cfg.Yard.Log, logfile.Options{
+			Markers:       true,
+			CompressAfter: cfg.Yard.LogCompressDays,
+			Keep:          cfg.Yard.LogKeepDays,
+		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("log: %w", err)
 		}

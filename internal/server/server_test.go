@@ -152,7 +152,7 @@ func TestProxy(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
 		t.Errorf("server log = %q", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log"));!strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
+	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
 		t.Errorf("access log = %q", b)
 	}

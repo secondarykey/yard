@@ -80,7 +80,8 @@ _cmd/hello              server for manual testing
 - **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output is not.**
   Server output stays a single file because it is passed to the process as `*os.File` (above); splitting it
   by day would need a pipe that yard reads, which can block the server when yard falls behind.
-  The access log has no markers (`DisableMarkers`) so that it stays parseable.
+  The access log has no markers (`DisableMarkers`) so that it stays parseable. `log_compress_days` / `log_keep_days`
+  are handed to the writer (`logfile.Options`); wenteasy/log does the compressing and deleting in the background.
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
   Windows services do not receive signals.

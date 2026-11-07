@@ -11,6 +11,7 @@ import (
 
 	wlog "github.com/wenteasy/log"
 
+	"yard/internal/config"
 	"yard/internal/logfile"
 )
 
@@ -22,12 +23,12 @@ type accessLog struct {
 	w *wlog.RollingFileWriter
 }
 
-func openAccessLog(name string) (*accessLog, error) {
-	if name == "" {
+func openAccessLog(y config.Yard) (*accessLog, error) {
+	if y.AccessLog == "" {
 		return nil, nil
 	}
 	// No markers: they would break tools that parse the format.
-	w, err := logfile.Daily(name, false)
+	w, err := logfile.Daily(y.AccessLog, logfile.Options{CompressAfter: y.LogCompressDays, Keep: y.LogKeepDays})
 	if err != nil {
 		return nil, err
 	}

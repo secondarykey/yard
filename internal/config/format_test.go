@@ -9,7 +9,7 @@ import (
 
 func TestFormatRoundTrip(t *testing.T) {
 	in := &Config{
-		Yard:    Yard{Addr: ":9090", AccessLog: "access.log"},
+		Yard:    Yard{Addr: ":9090", AccessLog: "access.log", LogCompressDays: 7, LogKeepDays: 90},
 		Admin:   Admin{Allow: []string{"127.0.0.1", "10.0.0.0/8"}},
 		Service: Service{Name: "yard", Description: `say "hi"`, UserService: true},
 		Servers: []Server{

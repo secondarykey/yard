@@ -64,6 +64,11 @@ type Yard struct {
 	AccessLog string `toml:"access_log" json:"access_log"` // access log destination, one file per day; disabled if empty
 	Log       string `toml:"log" json:"log"`               // yard's own log destination, one file per day; stderr if empty (the OS log when running as a service)
 
+	// LogCompressDays and LogKeepDays apply to log and access_log: files older than this many days
+	// are gzipped / deleted. 0 (the default) keeps them all as they are.
+	LogCompressDays int `toml:"log_compress_days" json:"log_compress_days"`
+	LogKeepDays     int `toml:"log_keep_days" json:"log_keep_days"`
+
 	// Cert and Key are PEM files for HTTPS. With both set, addr serves HTTPS instead of HTTP.
 	// Relative paths are resolved against the configuration file's directory.
 	Cert string `toml:"cert" json:"cert"`
@@ -217,6 +222,12 @@ func (c *Config) normalize() error {
 	}
 	c.Yard.AccessLog = c.LogPath(c.Yard.AccessLog)
 	c.Yard.Log = c.LogPath(c.Yard.Log)
+	if c.Yard.LogCompressDays < 0 {
+		errs = append(errs, errors.New("yard.log_compress_days must not be negative"))
+	}
+	if c.Yard.LogKeepDays < 0 {
+		errs = append(errs, errors.New("yard.log_keep_days must not be negative"))
+	}
 	if err := c.Yard.loadTLS(c); err != nil {
 		errs = append(errs, err)
 	}
@@ -462,6 +473,9 @@ const Template = `# yard configuration file (TOML)
 addr = ":8080"
 # access_log = "access.log"
 # log = "yard.log"
+# Days after which those files are gzipped / deleted (0 or omitted: keep them all as they are).
+# log_compress_days = 7
+# log_keep_days = 90
 # Serve HTTPS on addr (PEM files, relative to this file). redirect_addr redirects plain HTTP to it.
 # cert = "yard.crt"
 # key = "yard.key"

@@ -68,6 +68,8 @@ Unknown keys are errors (so that typos are caught).
 addr = ":8080"                    # listen address
 access_log = "access.log"         # access log, one file per day (access_20261108.log); omit to disable
 log = "yard.log"                  # yard's own log, one file per day (yard_20261108.log); omit for stderr (the OS log when running as a service)
+log_compress_days = 7             # gzip log / access_log files older than this many days; omit to keep them as they are
+log_keep_days = 90                # delete log / access_log files older than this many days; omit to keep them all
 # cert = "yard.crt"               # with key: serve HTTPS on addr (PEM files)
 # key = "yard.key"
 # redirect_addr = ":80"           # with HTTPS: plain HTTP here is redirected to https
@@ -205,7 +207,13 @@ the connection's address only, so behind a proxy on the same machine every clien
 ## Log files
 
 yard's own log (`[yard] log`) and the access log (`access_log`) switch files every day: the date goes before
-the extension, which becomes `.log` (`access.log` → `access_20261108.log`). Old files are kept; deleting them is up to you.
+the extension, which becomes `.log` (`access.log` → `access_20261108.log`).
+
+Old files are kept as they are unless `log_compress_days` / `log_keep_days` are set. With `log_compress_days = 7` and
+`log_keep_days = 90`, today's and the previous 6 days' files stay as `.log`, files from 7 to 89 days ago become
+`.log.gz`, and older ones are deleted. The age comes from the date in the file name, and only files named exactly
+`<name>_<date>.log` / `.log.gz` are touched. This runs when yard starts and when the date changes.
+Changing the two values applies to the access log at once and to yard's own log after a restart.
 When yard's own log reopens a file that already exists (yard restarted the same day), a separator line is written to it.
 
 yard's own log is written with `log/slog`:

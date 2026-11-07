@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +17,8 @@ func Format(c *Config) []byte {
 		str("addr", c.Yard.Addr),
 		str("access_log", c.Yard.AccessLog),
 		str("log", c.Yard.Log),
+		num("log_compress_days", c.Yard.LogCompressDays),
+		num("log_keep_days", c.Yard.LogKeepDays),
 		str("cert", c.Yard.Cert),
 		str("key", c.Yard.Key),
 		str("redirect_addr", c.Yard.RedirectAddr))
@@ -69,6 +72,13 @@ func list(key string, vs []string) keyValue {
 		q[i] = quote(v)
 	}
 	return keyValue{key, "[" + strings.Join(q, ", ") + "]"}
+}
+
+func num(key string, v int) keyValue {
+	if v == 0 {
+		return keyValue{}
+	}
+	return keyValue{key, strconv.Itoa(v)}
 }
 
 func flag(key string, v bool) keyValue {
