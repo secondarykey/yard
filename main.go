@@ -235,8 +235,9 @@ type program struct {
 	cfg     *config.Config
 	logger  *log.Logger
 
-	srv  *server.Server
-	http *http.Server
+	srv      *server.Server
+	http     *http.Server
+	redirect *http.Server // plain HTTP → https on yard.redirect_addr; nil if not used
 }
 
 // Start must not block. It does everything up to listen synchronously so that
@@ -247,25 +248,61 @@ func (p *program) Start(service.Service) error {
 		return fmt.Errorf("listen on %s: %w", p.cfg.Yard.Addr, err)
 	}
 
+	var redirectLn net.Listener
+	if a := p.cfg.Yard.RedirectAddr; a != "" {
+		if redirectLn, err = net.Listen("tcp", a); err != nil {
+			ln.Close()
+			return fmt.Errorf("listen on %s (redirect_addr): %w", a, err)
+		}
+	}
+
 	srv, err := server.New(p.cfgPath, p.cfg, p.logger)
 	if err != nil {
 		ln.Close()
+		if redirectLn != nil {
+			redirectLn.Close()
+		}
 		return err
 	}
 	p.srv = srv
 	p.http = &http.Server{
 		Handler:           srv.Handler(),
+		TLSConfig:         srv.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          p.logger,
 		// No deadlines on reading/writing bodies, so that long-running responses
 		// from servers (SSE, WebSocket, large downloads) are not cut off.
 	}
-	p.logger.Printf("listening on %s (config: %s, logdir: %s, %d servers)", ln.Addr(), p.cfgPath, p.cfg.LogDir, len(p.cfg.Servers))
+	scheme := "http"
+	if p.http.TLSConfig != nil {
+		scheme = "https"
+	}
+	p.logger.Printf("listening on %s (%s, config: %s, logdir: %s, %d servers)", ln.Addr(), scheme, p.cfgPath, p.cfg.LogDir, len(p.cfg.Servers))
 	go func() {
-		if err := p.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if p.http.TLSConfig != nil {
+			err = p.http.ServeTLS(ln, "", "") // the certificate comes from TLSConfig
+		} else {
+			err = p.http.Serve(ln)
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.logger.Printf("serve: %v", err)
 		}
 	}()
+
+	if redirectLn != nil {
+		p.redirect = &http.Server{
+			Handler:           server.RedirectHandler(p.cfg.Yard.Addr),
+			ReadHeaderTimeout: 10 * time.Second,
+			ErrorLog:          p.logger,
+		}
+		p.logger.Printf("redirecting http on %s to https", redirectLn.Addr())
+		go func() {
+			if err := p.redirect.Serve(redirectLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				p.logger.Printf("serve redirect: %v", err)
+			}
+		}()
+	}
 	return nil
 }
 
@@ -273,9 +310,11 @@ func (p *program) Start(service.Service) error {
 func (p *program) Stop(service.Service) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if p.http != nil {
-		if err := p.http.Shutdown(ctx); err != nil {
-			p.http.Close()
+	for _, h := range []*http.Server{p.redirect, p.http} {
+		if h != nil {
+			if err := h.Shutdown(ctx); err != nil {
+				h.Close()
+			}
 		}
 	}
 	if p.srv != nil {

@@ -8,6 +8,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -37,6 +38,10 @@ type Server struct {
 	addr   string // yard.addr at startup; cannot be changed by a reload
 	saveMu sync.Mutex
 
+	// Settings from startup that a reload cannot change (only the certificate itself can be renewed).
+	startCert    *tls.Certificate // nil without HTTPS
+	redirectAddr string
+
 	sessions sessions // logins to /.yard (auth.go)
 }
 
@@ -53,6 +58,9 @@ func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error
 		cfg:    cfg,
 		access: access,
 		addr:   cfg.Yard.Addr,
+
+		startCert:    cfg.Yard.Certificate(),
+		redirectAddr: cfg.Yard.RedirectAddr,
 		transport: &http.Transport{
 			Proxy: nil, // targets are on loopback, so ignore proxy settings from the environment
 			DialContext: (&net.Dialer{
@@ -126,6 +134,12 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	old := s.Config()
 	if cfg.Yard.Addr != s.addr {
 		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) takes effect after restarting yard", s.addr, cfg.Yard.Addr))
+	}
+	if cfg.Yard.TLS() != (s.startCert != nil) {
+		notices = append(notices, "turning HTTPS (yard.cert / yard.key) on or off takes effect after restarting yard")
+	}
+	if cfg.Yard.RedirectAddr != s.redirectAddr {
+		notices = append(notices, "yard.redirect_addr takes effect after restarting yard")
 	}
 	if cfg.Yard.Log != old.Yard.Log {
 		notices = append(notices, "yard.log takes effect after restarting yard")

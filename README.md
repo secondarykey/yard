@@ -58,7 +58,7 @@ See [_docs/service.md](_docs/service.md) for service behavior on each OS.
 
 TOML format. Relative paths are resolved as follows:
 
-- `command` / `dir`: the directory containing yard.ini
+- `command` / `dir` / `cert` / `key`: the directory containing yard.ini
 - `log` / `access_log`: the log directory (default `%TEMP%\yard`)
 
 Unknown keys are errors (so that typos are caught).
@@ -68,6 +68,9 @@ Unknown keys are errors (so that typos are caught).
 addr = ":8080"                    # listen address
 access_log = "access.log"         # access log; omit to disable
 log = "yard.log"                  # yard's own log; omit for stderr (the OS log when running as a service)
+# cert = "yard.crt"               # with key: serve HTTPS on addr (PEM files)
+# key = "yard.key"
+# redirect_addr = ":80"           # with HTTPS: plain HTTP here is redirected to https
 
 [admin]
 allow = ["127.0.0.1", "::1", "192.168.10.0/24"]   # clients allowed to use /.yard; "*" allows all
@@ -150,7 +153,8 @@ A new port is picked on each start. Child processes created by the server are st
 | `PUT /.yard/api/config` | Validate, save, and apply new contents (TOML, or JSON with the same keys when `Content-Type: application/json`) |
 
 When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
-Changes to `yard.addr` / `yard.log` / `[service]` require restarting yard (`[service]` requires re-registering).
+Changes to `yard.addr` / `yard.log` / `yard.redirect_addr` / `[service]`, and turning HTTPS on or off, require restarting yard
+(`[service]` requires re-registering). A renewed certificate is picked up by a reload.
 
 **Editing the configuration is equivalent to running arbitrary programs.** For this reason `/.yard` is only
 accessible from loopback by default. If you widen `admin.allow`, keep the allowed clients narrow.
@@ -173,7 +177,30 @@ curl -b jar http://localhost:8080/.yard/api/servers
   A session ends after 24 hours without requests.
 - A wrong password costs one second, and only one login is checked at a time.
 - If you forget the password, remove `password_hash` from yard.ini and restart yard.
-- yard does not do TLS, so on a network the password travels in plain text unless something in front of yard adds HTTPS.
+- Without HTTPS (see below) the password travels in plain text on the network.
+
+## HTTPS
+
+Set `cert` and `key` under `[yard]` and `addr` serves HTTPS instead of HTTP.
+
+```toml
+[yard]
+addr = ":443"
+cert = "yard.crt"          # PEM; the chain (server certificate first) if there are intermediates
+key = "yard.key"           # PEM, unencrypted
+redirect_addr = ":80"      # optional: http://host/... → https://host/...
+```
+
+- The certificate is checked when the configuration is loaded or saved, so a broken one never gets saved.
+- To renew it, replace the files and reload (`/.yard` → reload, or save the configuration). No restart is needed.
+- Inside an intranet, public CAs are hard to use. Make a certificate from a local CA (for example with
+  [mkcert](https://github.com/FiloSottile/mkcert)) for the names clients use, and make the clients trust that CA.
+- With HTTPS the login cookie is `Secure`, and servers get `X-Forwarded-Proto: https`.
+- HTTP/2 is used where the client supports it. WebSocket still runs over HTTP/1.1.
+
+Prefer this to putting a TLS proxy (nginx, Caddy, IIS...) in front of yard. yard decides who the client is from
+the connection's address only, so behind a proxy on the same machine every client looks like loopback:
+`admin.allow` and `local_only` would then let the whole network through.
 
 ## Access log format
 

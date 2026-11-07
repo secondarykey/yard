@@ -37,9 +37,10 @@ func helper() {
 			http.Redirect(w, r, "/target", http.StatusFound)
 			return
 		}
-		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s arg=%s base=%s",
+		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s",
 			r.URL.Path, r.URL.RawPath, r.Host, r.Header.Get("X-Forwarded-Prefix"),
-			r.Header.Get("X-Forwarded-For"), strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"))
+			r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Forwarded-Proto"),
+			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"))
 	})
 	fmt.Println("helper up")
 	if err := http.ListenAndServe("127.0.0.1:"+os.Getenv("YARD_PORT"), mux); err != nil {
