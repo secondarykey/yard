@@ -351,14 +351,6 @@ func (s *Server) renderError(w http.ResponseWriter, r *http.Request, code int, t
 	s.render(w, code, "error.html", errorData{code, title, detail})
 }
 
-type portalData struct {
-	Tools []proc.Status
-}
-
-func (s *Server) renderPortal(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "portal.html", portalData{Tools: s.portalTools()})
-}
-
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)

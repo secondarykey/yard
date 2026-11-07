@@ -142,9 +142,9 @@ func TestProxy(t *testing.T) {
 	if code, _, _ := get(t, ts.URL+"/echox"); code != 404 {
 		t.Errorf("/echox = %d", code)
 	}
-	// ルートはポータル
-	if code, body, _ := get(t, ts.URL+"/"); code != 200 || !strings.Contains(body, `href="/echo/"`) {
-		t.Errorf("portal = %d %s", code, body)
+	// "/" のツールが無ければルートも 404
+	if code, _, _ := get(t, ts.URL+"/"); code != 404 {
+		t.Errorf("/ = %d", code)
 	}
 
 	// ツールの出力とアクセスログ

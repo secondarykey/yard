@@ -7,8 +7,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
-
-	"yard/internal/proc"
 )
 
 // proxy は path に一致するツールへリクエストを転送する。
@@ -19,10 +17,8 @@ import (
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.mgr.Match(r.URL.Path)
 	if !ok {
-		if r.URL.Path == "/" {
-			s.renderPortal(w, r)
-			return
-		}
+		// "/" も含め、どのツールにも一致しなければ 404。
+		// yard 自身の画面は /.yard 以外には出さない。
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
@@ -101,15 +97,4 @@ func stripPrefix(out, in *url.URL, prefix string) {
 		}
 		out.RawPath = raw
 	}
-}
-
-// portalTools はポータル表示用に、無効化されていないツールの一覧を返す。
-func (s *Server) portalTools() []proc.Status {
-	var out []proc.Status
-	for _, st := range s.mgr.Statuses() {
-		if st.State != proc.StateDisabled {
-			out = append(out, st)
-		}
-	}
-	return out
 }
