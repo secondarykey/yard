@@ -1,19 +1,19 @@
-{{template "head" "サーバ"}}
+{{template "head" "Servers"}}
 {{template "nav" .Page}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
   {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
   <div class="bar">
-    <h1>サーバ</h1>
+    <h1>Servers</h1>
     <span class="muted mono">{{.Addr}}</span>
     <span class="spacer"></span>
-    <form method="post" action="{{admin}}/reload"><button>設定を再読込</button></form>
+    <form method="post" action="{{admin}}/reload"><button>Reload config</button></form>
   </div>
   <div class="panel">
   {{if .Servers}}
   <table>
     <thead><tr>
-      <th>名前</th><th>パス</th><th>状態</th><th>PID</th><th>ポート</th><th>稼働</th><th>再起動</th><th>エラー</th><th></th>
+      <th>Name</th><th>Path</th><th>State</th><th>PID</th><th>Port</th><th>Uptime</th><th>Restarts</th><th>Error</th><th></th>
     </tr></thead>
     <tbody>
     {{range .Servers}}
@@ -28,10 +28,10 @@
       <td class="err" data-f="error">{{.Error}}</td>
       <td>
         <div class="actions">
-          <form method="post" action="{{admin}}/servers/{{.Name}}/start"><button data-a="start">起動</button></form>
-          <form method="post" action="{{admin}}/servers/{{.Name}}/stop"><button data-a="stop">停止</button></form>
-          <form method="post" action="{{admin}}/servers/{{.Name}}/restart"><button data-a="restart">再起動</button></form>
-          {{if .Log}}<a class="btn" href="{{admin}}/servers/{{.Name}}/log">ログ</a>{{end}}
+          <form method="post" action="{{admin}}/servers/{{.Name}}/start"><button data-a="start">Start</button></form>
+          <form method="post" action="{{admin}}/servers/{{.Name}}/stop"><button data-a="stop">Stop</button></form>
+          <form method="post" action="{{admin}}/servers/{{.Name}}/restart"><button data-a="restart">Restart</button></form>
+          {{if .Log}}<a class="btn" href="{{admin}}/servers/{{.Name}}/log">Log</a>{{end}}
         </div>
       </td>
     </tr>
@@ -39,7 +39,7 @@
     </tbody>
   </table>
   {{else}}
-  <div class="empty">サーバが登録されていません</div>
+  <div class="empty">No servers registered</div>
   {{end}}
   </div>
 </main>

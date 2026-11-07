@@ -1,8 +1,8 @@
-// Package server は yard の HTTP 側。サーバへの転送（proxy.go）、
-// アクセスログ（accesslog.go）、管理画面 /.yard（admin.go）を持つ。
+// Package server is the HTTP side of yard: forwarding to servers (proxy.go),
+// the access log (accesslog.go), and the /.yard admin UI (admin.go).
 //
-// 転送ヘッダ（X-Forwarded-For など）は接続元の判定に使わない。
-// 詐称で /.yard の接続元制限を抜けられるため。判定は RemoteAddr のみで行う。
+// Forwarding headers (X-Forwarded-For etc.) are never used to identify the client,
+// since spoofing them would bypass the /.yard client restriction. Only RemoteAddr is used.
 package server
 
 import (
@@ -23,9 +23,9 @@ import (
 	"yard/internal/proc"
 )
 
-// Server は設定・プロセス管理・HTTP ハンドラを束ねる。
+// Server ties together the configuration, process management, and HTTP handlers.
 type Server struct {
-	path   string // 設定ファイルの絶対パス
+	path   string // absolute path of the configuration file
 	logger *log.Logger
 	mgr    *proc.Manager
 
@@ -34,11 +34,11 @@ type Server struct {
 	mu     sync.RWMutex
 	cfg    *config.Config
 	access *accessLog
-	addr   string // 起動時の server.addr。再読み込みでは変えられない
+	addr   string // yard.addr at startup; cannot be changed by a reload
 	saveMu sync.Mutex
 }
 
-// New は設定を反映し、サーバを起動する。
+// New applies the configuration and starts the servers.
 func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error) {
 	access, err := openAccessLog(cfg.Yard.AccessLog)
 	if err != nil {
@@ -52,7 +52,7 @@ func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error
 		access: access,
 		addr:   cfg.Yard.Addr,
 		transport: &http.Transport{
-			Proxy: nil, // 転送先はループバックなので、環境変数のプロキシ設定を使わない
+			Proxy: nil, // targets are on loopback, so ignore proxy settings from the environment
 			DialContext: (&net.Dialer{
 				Timeout:   5 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -66,17 +66,17 @@ func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error
 	return s, nil
 }
 
-// Config は現在の設定を返す。
+// Config returns the current configuration.
 func (s *Server) Config() *config.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.cfg
 }
 
-// Manager はプロセス管理を返す。
+// Manager returns the process manager.
 func (s *Server) Manager() *proc.Manager { return s.mgr }
 
-// Close は全サーバを止め、ログを閉じる。
+// Close stops all servers and closes the logs.
 func (s *Server) Close() {
 	s.mgr.StopAll()
 	s.transport.CloseIdleConnections()
@@ -86,8 +86,8 @@ func (s *Server) Close() {
 	s.mu.Unlock()
 }
 
-// Reload は設定ファイルを読み直して反映する。
-// 戻り値の notices は、反映できなかった（再起動が必要な）項目の説明。
+// Reload rereads and applies the configuration file.
+// The returned notices describe settings that could not be applied (and need a restart).
 func (s *Server) Reload() (notices []string, err error) {
 	cfg, err := config.Load(s.path, s.Config().LogDir)
 	if err != nil {
@@ -96,13 +96,13 @@ func (s *Server) Reload() (notices []string, err error) {
 	return s.apply(cfg)
 }
 
-// ReadConfig は設定ファイルの本文を返す。
+// ReadConfig returns the contents of the configuration file.
 func (s *Server) ReadConfig() ([]byte, error) {
 	return os.ReadFile(s.path)
 }
 
-// SaveConfig は本文を検証してから設定ファイルに書き、反映する。
-// 検証に失敗した場合はファイルを変更しない。
+// SaveConfig validates the contents, writes them to the configuration file, and applies them.
+// If validation fails, the file is left unchanged.
 func (s *Server) SaveConfig(data []byte) (notices []string, err error) {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
@@ -123,13 +123,13 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	var notices []string
 	old := s.Config()
 	if cfg.Yard.Addr != s.addr {
-		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) は yard の再起動後に反映されます", s.addr, cfg.Yard.Addr))
+		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) takes effect after restarting yard", s.addr, cfg.Yard.Addr))
 	}
 	if cfg.Yard.Log != old.Yard.Log {
-		notices = append(notices, "yard.log は yard の再起動後に反映されます")
+		notices = append(notices, "yard.log takes effect after restarting yard")
 	}
 	if cfg.Service != old.Service {
-		notices = append(notices, "[service] はサービスの再登録（uninstall → install）で反映されます")
+		notices = append(notices, "[service] takes effect after re-registering the service (uninstall → install)")
 	}
 
 	var access *accessLog
@@ -154,11 +154,11 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	return notices, nil
 }
 
-// Handler は yard 全体の HTTP ハンドラを返す。
+// Handler returns the HTTP handler for all of yard.
 func (s *Server) Handler() http.Handler {
 	admin := s.adminHandler()
 	return s.logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// ".." などを含むパスは、どのサーバに属するかが曖昧になるので正規化してから扱う。
+		// Paths containing ".." etc. make it ambiguous which server they belong to, so normalize them first.
 		if r.Method != http.MethodConnect {
 			if p := cleanPath(r.URL.Path); p != r.URL.Path {
 				u := *r.URL
@@ -175,7 +175,7 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
-// cleanPath は net/http.ServeMux と同じ規則でパスを正規化する。
+// cleanPath normalizes a path using the same rules as net/http.ServeMux.
 func cleanPath(p string) string {
 	if p == "" {
 		return "/"
@@ -190,7 +190,7 @@ func cleanPath(p string) string {
 	return np
 }
 
-// writeFileAtomic は一時ファイルに書いてから置き換える。
+// writeFileAtomic writes to a temporary file and then replaces the target.
 func writeFileAtomic(name string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(name), filepath.Base(name)+".*.tmp")
 	if err != nil {
@@ -207,7 +207,7 @@ func writeFileAtomic(name string, data []byte) error {
 	return os.Rename(tmp.Name(), name)
 }
 
-// waitReady は起動中のサーバを、リクエストが続く間・起動待ち時間の範囲で待つ。
+// waitReady waits for a starting server while the request is alive, up to its start timeout.
 func waitReady(ctx context.Context, p *proc.Proc) string {
 	ctx, cancel := context.WithTimeout(ctx, p.Config().StartTimeout.Duration)
 	defer cancel()

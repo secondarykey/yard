@@ -1,102 +1,102 @@
-# サービス化（kardianos/service）の OS ごとの挙動
+# Service behavior per OS (kardianos/service)
 
-`github.com/kardianos/service` v1.3.0 のソースを読んで確認した内容。
-yard は `yard install` で登録し、登録時に `-config <yard.ini の絶対パス> -logdir <ログの絶対パス>`
-を引数として埋め込む。既定ではそれぞれ、install を実行した利用者の `%APPDATA%\yard\yard.ini` と `%TEMP%\yard`。
+Findings from reading the source of `github.com/kardianos/service` v1.3.0.
+yard is registered with `yard install`, which embeds `-config <absolute path to yard.ini> -logdir <absolute log path>`
+as arguments. By default these are `%APPDATA%\yard\yard.ini` and `%TEMP%\yard` of the user who ran install.
 
-## 共通
+## Common
 
-| 項目 | 内容 |
+| Item | Details |
 |---|---|
-| 登録内容 | 実行ファイルのパス + `-config` / `-logdir` の絶対パス。**実行ファイルを移動したら再登録が必要** |
-| 作業ディレクトリ | OS 依存（下記）。yard は相対パスを yard.ini の場所かログの場所を基準に解決するので影響しない |
-| `%APPDATA%` / `%TEMP%` | LocalSystem では `C:\Windows\System32\config\systemprofile\...` や `C:\Windows\Temp` になる。install 時に解決した絶対パスを使うので、yard はこれらを参照しない |
-| 権限 | システムサービスの登録・削除は管理者 / root が必要 |
-| ログ | `yard.log` が無いとき、yard 自身のログは OS のログへ（下記） |
-| 停止 | `Stop` の中でサーバを止める（Windows は即時終了、他は SIGTERM → 5 秒後 SIGKILL） |
+| What is registered | Path of the executable + absolute `-config` / `-logdir` paths. **Re-register after moving the executable** |
+| Working directory | OS dependent (see below). yard resolves relative paths against the yard.ini or log directory, so it does not matter |
+| `%APPDATA%` / `%TEMP%` | Under LocalSystem these become `C:\Windows\System32\config\systemprofile\...` and `C:\Windows\Temp`. yard uses the absolute paths resolved at install time and never reads them |
+| Privileges | Registering / removing a system service requires administrator / root |
+| Logs | Without `yard.log`, yard's own log goes to the OS log (see below) |
+| Stopping | Servers are stopped inside `Stop` (immediate termination on Windows, otherwise SIGTERM → SIGKILL after 5 seconds) |
 
-`[service]` の `name` を変えると、同じマシンに yard を複数登録できる。
-`[service]` の変更は `yard uninstall` → `yard install` で反映される（再起動では反映されない）。
+Changing `name` under `[service]` lets you register several yard instances on the same machine.
+Changes to `[service]` take effect after `yard uninstall` → `yard install` (a restart is not enough).
 
 ### uninstall
 
-kardianos/service の `Uninstall` は、Windows と systemd では**動いているサービスを止めない**。
+On Windows and systemd, kardianos/service's `Uninstall` **does not stop a running service**.
 
-- Windows: サービスは「削除予定」になるだけで動き続け、止まった時点で消える。
-- systemd: `disable` とユニットファイルの削除だけを行い、プロセスは動き続ける。
-- launchd: 停止してから plist を消す。
+- Windows: the service is only "marked for deletion"; it keeps running and disappears once it stops.
+- systemd: it only runs `disable` and deletes the unit file; the process keeps running.
+- launchd: it stops the service, then deletes the plist.
 
-そのため `yard uninstall` は、状態が running なら先に `Stop` し、止まったこと（最大 30 秒）を
-確かめてから登録を外す。止められなかったときは登録を外さずにエラーにする。
+So if the status is running, `yard uninstall` first calls `Stop`, confirms that the service has stopped (up to 30 seconds),
+and only then unregisters it. If it cannot be stopped, it returns an error without unregistering.
 
-## Windows（SCM）
+## Windows (SCM)
 
-- 登録先: サービスコントロールマネージャ。`sc query <name>` / `services.msc` で確認できる。
-- 実行ユーザ: 既定は LocalSystem。`[service] user` は Windows では使っていない
-  （パスワードの受け渡しが要るため）。必要なら services.msc で変更する。
-- 作業ディレクトリ: `C:\Windows\System32`。
-- 起動種別: 自動（`StartType` 既定 automatic）。
-- 回復オプション: yard は `OnFailure = restart`、`OnFailureDelayDuration = 5s` を指定している。
-  yard 自身が異常終了したときに SCM が再起動する。
-- ログ: `yard.log` が無ければイベントログ（ソース名 = サービス名）。
-- 停止待ち: SCM がサービスを強制終了するまでの時間は
-  `HKLM\SYSTEM\CurrentControlSet\Control\WaitToKillServiceTimeout`（既定 20 秒）。
-- シグナルは届かない。停止は SCM からの制御要求で行われる。
-- セッション 0 で動くため、サーバがウィンドウを出しても見えない。
-- **サーバのプロセスツリー:** yard はサーバをジョブオブジェクト（KILL_ON_JOB_CLOSE）に入れる。
-  yard が強制終了されてもサーバと孫プロセスは OS が終了させる（実機で確認済み）。
-- ネットワーク: Windows ファイアウォールのプログラム単位の許可は実行ファイルのパスで一致する。
-  開発用ビルドとサービスの実体でパスが違うと片方だけ通らない。
+- Registered with: the Service Control Manager. Check with `sc query <name>` / `services.msc`.
+- Run as: LocalSystem by default. `[service] user` is not used on Windows
+  (it would require passing a password). Change it in services.msc if needed.
+- Working directory: `C:\Windows\System32`.
+- Start type: automatic (`StartType` defaults to automatic).
+- Recovery options: yard sets `OnFailure = restart` and `OnFailureDelayDuration = 5s`.
+  The SCM restarts yard if yard itself exits abnormally.
+- Logs: the Event Log (source name = service name) if `yard.log` is not set.
+- Stop timeout: the time before the SCM forcibly terminates a service is
+  `HKLM\SYSTEM\CurrentControlSet\Control\WaitToKillServiceTimeout` (20 seconds by default).
+- Signals are not delivered. Stopping is done via control requests from the SCM.
+- It runs in session 0, so windows opened by servers are not visible.
+- **Server process tree:** yard puts servers in a job object (KILL_ON_JOB_CLOSE).
+  Even if yard is killed, the OS terminates the servers and their grandchildren (verified on a real machine).
+- Network: per-program rules in Windows Firewall match on the executable path.
+  If the development build and the service binary have different paths, only one of them gets through.
 
 ## Linux
 
-kardianos/service は init システムを自動判別する（優先順: systemd → upstart → OpenRC →
-procd → sysv）。`yard status` などで使われる種別は `service.Platform()` で分かる。
+kardianos/service detects the init system automatically (priority: systemd → upstart → OpenRC →
+procd → sysv). The kind used by `yard status` etc. can be found with `service.Platform()`.
 
-### systemd（大半のディストリビューション）
+### systemd (most distributions)
 
-- 登録先: `/etc/systemd/system/<name>.service`
-  （`user_service = true` なら `~/.config/systemd/user/<name>.service`、`systemctl --user` で操作）。
-- 実行ユーザ: `[service] user` を書くと `User=` に入る。空なら root。
-  **サーバも同じユーザで動く**ので、root を避けたいなら必ず指定する。
-- 作業ディレクトリ: `/`。
-- 再起動: yard は `Restart=on-failure` を指定。テンプレート固定で `RestartSec=120`
-  （再起動まで 2 分待つ）、`StartLimitInterval=5` / `StartLimitBurst=10`。
-- 環境変数: `/etc/sysconfig/<name>` があれば `EnvironmentFile` として読む。
-  **systemd の PATH は最小限**なので、サーバの command は絶対パスで書くのが安全。
-- ログ: `yard.log` が無ければ syslog → journald（`journalctl -u <name>`）。
-- 停止: 既定の `KillMode=control-group` により、systemd が yard とサーバ（同じ cgroup）に
-  同時に SIGTERM を送る。yard 側もサーバを止めに行くが、二重に止めても問題はない。
+- Registered at: `/etc/systemd/system/<name>.service`
+  (with `user_service = true`, `~/.config/systemd/user/<name>.service`, controlled with `systemctl --user`).
+- Run as: `[service] user` goes into `User=`. Empty means root.
+  **Servers run as the same user**, so always set it if you want to avoid root.
+- Working directory: `/`.
+- Restart: yard sets `Restart=on-failure`. The template hard-codes `RestartSec=120`
+  (waits 2 minutes before restarting), `StartLimitInterval=5` / `StartLimitBurst=10`.
+- Environment: `/etc/sysconfig/<name>` is read as an `EnvironmentFile` if it exists.
+  **systemd's PATH is minimal**, so it is safest to write server commands as absolute paths.
+- Logs: syslog → journald (`journalctl -u <name>`) if `yard.log` is not set.
+- Stopping: with the default `KillMode=control-group`, systemd sends SIGTERM to yard and the servers (same cgroup)
+  at the same time. yard also stops the servers, but stopping them twice is harmless.
 
 ### upstart / OpenRC / procd / sysv
 
-- 各 init のスクリプト（`/etc/init/*.conf`、`/etc/init.d/<name>` など）が生成される。
-- `[service] user` の扱いや再起動ポリシーはテンプレートごとに異なり、
-  sysv では異常終了時の自動再起動は無い。
-- yard は Setpgid でサーバを別プロセスグループにしており、停止時はグループごと SIGTERM/SIGKILL する。
-  yard 自身が SIGKILL された場合はサーバが残る（Linux の pdeathsig は使っていない）。
+- A script for each init system is generated (`/etc/init/*.conf`, `/etc/init.d/<name>`, etc.).
+- Handling of `[service] user` and the restart policy differ per template;
+  sysv does not restart automatically on abnormal exit.
+- yard puts servers in a separate process group with Setpgid and sends SIGTERM/SIGKILL to the whole group when stopping.
+  If yard itself is killed with SIGKILL, the servers are left running (Linux pdeathsig is not used).
 
-## macOS（launchd）
+## macOS (launchd)
 
-- 登録先: `/Library/LaunchDaemons/<name>.plist`（root で登録）。
-  `user_service = true` なら `~/Library/LaunchAgents/<name>.plist`（ログイン中のみ動く）。
-- 実行ユーザ: `[service] user` が `UserName` に入る。空なら root。
-- yard は `KeepAlive = true`、`RunAtLoad = true` を指定している（落ちたら launchd が起こし直す）。
-- 作業ディレクトリ: 指定しなければ `/`。
-- ログ: `yard.log` が無ければ syslog（`log show --predicate 'process == "yard"'`）。
-- 実行ファイルには Gatekeeper / 公証の問題が出うる。手元でビルドしたものは問題になりにくい。
-- 停止: `launchctl` からの停止で SIGTERM が届く。launchd は既定でジョブのプロセスグループも終了させる。
+- Registered at: `/Library/LaunchDaemons/<name>.plist` (registered as root).
+  With `user_service = true`, `~/Library/LaunchAgents/<name>.plist` (runs only while logged in).
+- Run as: `[service] user` goes into `UserName`. Empty means root.
+- yard sets `KeepAlive = true` and `RunAtLoad = true` (launchd restarts it if it dies).
+- Working directory: `/` unless specified.
+- Logs: syslog (`log show --predicate 'process == "yard"'`) if `yard.log` is not set.
+- The executable may run into Gatekeeper / notarization issues. Locally built binaries are less likely to be affected.
+- Stopping: stopping via `launchctl` delivers SIGTERM. launchd also terminates the job's process group by default.
 
-## FreeBSD / その他
+## FreeBSD / others
 
-- FreeBSD: `/usr/local/etc/rc.d/<name>` の rc スクリプト。`sysrc <name>_enable=YES` が必要な場合がある。
-- Solaris（SMF）、AIX にも対応しているが未確認。
+- FreeBSD: an rc script at `/usr/local/etc/rc.d/<name>`. `sysrc <name>_enable=YES` may be required.
+- Solaris (SMF) and AIX are also supported but unverified.
 
-## 動作確認の状況
+## Verification status
 
-| OS | ビルド | 実機 |
+| OS | Build | Real machine |
 |---|---|---|
-| Windows 11 | ○ | 前面起動・サーバの起動/停止/再起動・ジョブオブジェクトによる後始末を確認。サービス登録は未確認 |
-| Linux | ○（`GOOS=linux go vet`） | 未確認 |
-| macOS | ○（`GOOS=darwin go vet`） | 未確認 |
-| FreeBSD | ○（`GOOS=freebsd go build`） | 未確認 |
+| Windows 11 | ✓ | Verified foreground run, server start/stop/restart, and cleanup via job object. Service registration unverified |
+| Linux | ✓ (`GOOS=linux go vet`) | Unverified |
+| macOS | ✓ (`GOOS=darwin go vet`) | Unverified |
+| FreeBSD | ✓ (`GOOS=freebsd go build`) | Unverified |

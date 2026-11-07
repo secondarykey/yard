@@ -10,23 +10,23 @@ import (
 	"yard/internal/config"
 )
 
-// Manager は全サーバの Proc を持ち、パスからサーバを引く。
+// Manager holds the Procs of all servers and looks up servers by path.
 type Manager struct {
 	logger *log.Logger
 
 	mu    sync.RWMutex
 	procs map[string]*Proc
-	order []string // 設定ファイルでの並び
-	byLen []*Proc  // path の長い順（最長一致用）
+	order []string // order in the configuration file
+	byLen []*Proc  // sorted by path length, longest first (for longest match)
 }
 
-// NewManager は空の Manager を作る。
+// NewManager creates an empty Manager.
 func NewManager(logger *log.Logger) *Manager {
 	return &Manager{logger: logger, procs: map[string]*Proc{}}
 }
 
-// Apply は設定を反映する。設定が変わっていないサーバは動かしたままにし、
-// 変わったものは作り直し、消えたものは止め、増えたものは起動する。
+// Apply applies the configuration. Unchanged servers keep running,
+// changed ones are recreated, removed ones are stopped, and new ones are started.
 func (m *Manager) Apply(servers []config.Server) {
 	m.mu.Lock()
 	old := m.procs
@@ -63,7 +63,7 @@ func (m *Manager) Apply(servers []config.Server) {
 	m.procs, m.order, m.byLen = next, order, byLen
 	m.mu.Unlock()
 
-	// 古いプロセスが同じポートやファイルを掴んでいることがあるので、止めてから起動する。
+	// Old processes may hold the same port or files, so stop them before starting.
 	parallel(stop, func(p *Proc) { p.Stop() })
 	for _, p := range start {
 		if err := p.Start(); err != nil {
@@ -72,7 +72,7 @@ func (m *Manager) Apply(servers []config.Server) {
 	}
 }
 
-// StopAll は全サーバを止める。
+// StopAll stops all servers.
 func (m *Manager) StopAll() {
 	m.mu.RLock()
 	all := make([]*Proc, 0, len(m.procs))
@@ -83,7 +83,7 @@ func (m *Manager) StopAll() {
 	parallel(all, func(p *Proc) { p.Stop() })
 }
 
-// Get は名前で Proc を返す。
+// Get returns the Proc with the given name.
 func (m *Manager) Get(name string) (*Proc, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -91,7 +91,7 @@ func (m *Manager) Get(name string) (*Proc, bool) {
 	return p, ok
 }
 
-// Statuses は設定ファイルの並びで全サーバの状態を返す。
+// Statuses returns the states of all servers in configuration file order.
 func (m *Manager) Statuses() []Status {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -102,8 +102,8 @@ func (m *Manager) Statuses() []Status {
 	return out
 }
 
-// Match は URL パスに最長一致するサーバを返す。
-// "/memo" は "/memo" と "/memo/..." に一致し、"/memox" には一致しない。
+// Match returns the server whose path is the longest match for the URL path.
+// "/memo" matches "/memo" and "/memo/...", but not "/memox".
 func (m *Manager) Match(urlPath string) (*Proc, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -115,7 +115,7 @@ func (m *Manager) Match(urlPath string) (*Proc, bool) {
 	return nil, false
 }
 
-// MatchPath は prefix が urlPath を受け持つかを返す。
+// MatchPath reports whether prefix covers urlPath.
 func MatchPath(prefix, urlPath string) bool {
 	if prefix == "/" {
 		return true

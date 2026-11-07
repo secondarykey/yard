@@ -9,24 +9,24 @@ import (
 	"strings"
 )
 
-// proxy は path に一致するサーバへリクエストを転送する。
+// proxy forwards the request to the server whose path matches.
 //
-// Host ヘッダは元のまま渡し、X-Forwarded-For / -Host / -Proto と
-// X-Forwarded-Prefix（サーバの path）を付ける。WebSocket などの Upgrade も
-// httputil.ReverseProxy がそのまま中継する。
+// The Host header is passed through unchanged, and X-Forwarded-For / -Host / -Proto and
+// X-Forwarded-Prefix (the server's path) are added. Upgrades such as WebSocket are
+// relayed as is by httputil.ReverseProxy.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.mgr.Match(r.URL.Path)
 	if !ok {
-		// "/" も含め、どのサーバにも一致しなければ 404。
-		// yard 自身の画面は /.yard 以外には出さない。
+		// 404 if no server matches, including "/".
+		// yard's own pages are only served under /.yard.
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
 	t := p.Config()
 	setTarget(r, t.Name)
 
-	// 取り除いた結果が空のパスになると、サーバ側の相対リンクが壊れるので
-	// "/memo" は "/memo/" に揃える。取り除かない場合はサーバの判断に任せる。
+	// Stripping down to an empty path would break the server's relative links,
+	// so redirect "/memo" to "/memo/". Without stripping, leave it to the server.
 	if t.StripPrefix && t.Path != "/" && r.URL.Path == t.Path {
 		u := *r.URL
 		u.Path, u.RawPath = t.Path+"/", ""
@@ -63,7 +63,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		ErrorLog:  s.logger,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
-				return // 利用者が接続を切った
+				return // the client disconnected
 			}
 			s.logger.Printf("[%s] proxy: %v", t.Name, err)
 			s.renderError(w, r, http.StatusBadGateway, "Bad Gateway", t.Name)
@@ -71,7 +71,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.StripPrefix && t.Path != "/" {
 		rp.ModifyResponse = func(res *http.Response) error {
-			// サーバが自分の "/" 基準で返したリダイレクト先に公開パスを付け直す。
+			// Prepend the public path to redirects the server returned relative to its own "/".
 			if loc := res.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") {
 				res.Header.Set("Location", t.Path+loc)
 			}
@@ -81,7 +81,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
-// stripPrefix は out のパスから prefix を取り除く。in は元のリクエスト URL。
+// stripPrefix removes prefix from out's path. in is the original request URL.
 func stripPrefix(out, in *url.URL, prefix string) {
 	p := strings.TrimPrefix(in.Path, prefix)
 	if !strings.HasPrefix(p, "/") {
@@ -90,7 +90,7 @@ func stripPrefix(out, in *url.URL, prefix string) {
 	out.Path = p
 	out.RawPath = ""
 	if in.RawPath != "" {
-		// %2F などのエンコードを保つ。prefix は '%' を含まない（設定で検証済み）。
+		// Keep encodings such as %2F. prefix never contains '%' (validated in config).
 		raw := strings.TrimPrefix(in.RawPath, prefix)
 		if !strings.HasPrefix(raw, "/") {
 			raw = "/" + raw

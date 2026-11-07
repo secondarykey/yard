@@ -1,5 +1,5 @@
 {{define "head"}}<!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -72,8 +72,8 @@ pre.log { margin: 0; padding: 14px; max-height: 75vh; overflow: auto; white-spac
 <header>
   <span class="brand">yard</span>
   <nav>
-    <a href="{{admin}}/" {{if eq . "servers"}}class="on"{{end}}>サーバ</a>
-    <a href="{{admin}}/config" {{if eq . "config"}}class="on"{{end}}>設定</a>
+    <a href="{{admin}}/" {{if eq . "servers"}}class="on"{{end}}>Servers</a>
+    <a href="{{admin}}/config" {{if eq . "config"}}class="on"{{end}}>Config</a>
   </nav>
 </header>
 {{end}}

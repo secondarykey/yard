@@ -1,32 +1,32 @@
 # yard
 
-イントラ内でサーバ群を公開するためのプロキシサーバ。
+A proxy server for publishing a set of servers inside an intranet.
 
-Web サーバとして作ったプログラムは、本来それぞれ別のポートで起動したりサービス化したりする必要がある。
-yard は設定ファイルに書いたプログラムを**空きポートで起動し**、指定した URI 以下への
-リクエストをそのプログラムへ転送する。プログラムの起動・監視・再起動まで yard が受け持つ。
+Programs built as web servers normally each need their own port, or have to be installed as services one by one.
+yard **starts the programs listed in its configuration file on free ports** and forwards requests under
+a given URI to the matching program. yard also takes care of starting, monitoring, and restarting them.
 
 ```
 http://server:8080/memo/...   →  memo.exe -port 51234 -base /memo/
 http://server:8080/wiki/...   →  wiki.exe -port 51240 -base /wiki/
-http://server:8080/.yard/     →  yard の管理画面
+http://server:8080/.yard/     →  yard admin pages
 ```
 
-## 使い方
+## Usage
 
 ```bash
 go build -o yard.exe .
 ```
 
 ```bash
-yard init          # yard.ini の雛形を書き出す
+yard init          # write a template yard.ini
 ```
 
 ```bash
-yard               # 前面で起動する
+yard               # run in the foreground
 ```
 
-サービスとして常駐させる場合（管理者 / root 権限が必要）:
+To run it as a service (requires administrator / root):
 
 ```bash
 yard install
@@ -36,129 +36,129 @@ yard install
 yard start
 ```
 
-`uninstall` / `stop` / `restart` / `status` もある。`uninstall` は動いているサービスを止めてから登録を外す。
+`uninstall` / `stop` / `restart` / `status` are also available. `uninstall` stops a running service before unregistering it.
 
-### ファイルの場所
+### File locations
 
-| | 既定の場所 | 変えるとき |
+| | Default | Override |
 |---|---|---|
-| 設定ファイル | `%APPDATA%\yard\yard.ini` | `-config <パス>` |
-| ログ | `%TEMP%\yard\` | `-logdir <パス>` |
+| Configuration file | `%APPDATA%\yard\yard.ini` | `-config <path>` |
+| Logs | `%TEMP%\yard\` | `-logdir <path>` |
 
-Linux は `~/.config/yard/yard.ini` と `$TMPDIR/yard`（無ければ `/tmp/yard`）、
-macOS は `~/Library/Application Support/yard/yard.ini` と `$TMPDIR/yard`。
+On Linux these are `~/.config/yard/yard.ini` and `$TMPDIR/yard` (or `/tmp/yard` if unset);
+on macOS, `~/Library/Application Support/yard/yard.ini` and `$TMPDIR/yard`.
 
-`install` は、実行した利用者の設定ファイルとログの場所を絶対パスでサービスに登録する。
-サービス（LocalSystem や root）として動いても、`%APPDATA%` / `%TEMP%` がサービス側の場所に変わらない。
-ログは設定ファイルに書いたものだけが出力される。
+`install` registers the configuration file and log locations of the user who ran it as absolute paths in the service.
+Even when running as a service (LocalSystem or root), `%APPDATA%` / `%TEMP%` do not switch to the service account's locations.
+Only the logs specified in the configuration file are written.
 
-OS ごとのサービスの挙動は [_docs/service.md](_docs/service.md) を参照。
+See [_docs/service.md](_docs/service.md) for service behavior on each OS.
 
-## 設定ファイル（yard.ini）
+## Configuration file (yard.ini)
 
-TOML 形式。相対パスの基準は次のとおり。
+TOML format. Relative paths are resolved as follows:
 
-- `command` / `dir`: yard.ini のあるディレクトリ
-- `log` / `access_log`: ログのディレクトリ（既定 `%TEMP%\yard`）
+- `command` / `dir`: the directory containing yard.ini
+- `log` / `access_log`: the log directory (default `%TEMP%\yard`)
 
-未知のキーはエラーになる（綴り間違いに気づけるように）。
+Unknown keys are errors (so that typos are caught).
 
 ```toml
 [yard]
-addr = ":8080"                    # 待ち受けアドレス
-access_log = "access.log"         # アクセスログ。省略で出力しない
-log = "yard.log"                  # yard 自身のログ。省略で標準エラー（サービス時は OS のログ）
+addr = ":8080"                    # listen address
+access_log = "access.log"         # access log; omit to disable
+log = "yard.log"                  # yard's own log; omit for stderr (the OS log when running as a service)
 
 [admin]
-allow = ["127.0.0.1", "::1", "192.168.10.0/24"]   # /.yard を操作できる接続元。"*" で全許可
+allow = ["127.0.0.1", "::1", "192.168.10.0/24"]   # clients allowed to use /.yard; "*" allows all
 
 [service]
-name = "yard"                     # サービス名。変えれば複数インスタンスを登録できる
+name = "yard"                     # service name; change it to register multiple instances
 # display_name = "yard"
 # description = "..."
-# user = "yard"                   # 実行ユーザ（Linux / macOS）。サーバもこのユーザで動く
-# user_service = false            # ユーザサービスとして登録（systemd --user / LaunchAgents）
+# user = "yard"                   # user to run as (Linux / macOS); servers run as this user too
+# user_service = false            # register as a user service (systemd --user / LaunchAgents)
 
 [[server]]
-name = "memo"                     # 識別名（必須・一意）
-path = "/memo"                    # 公開する URI（必須・一意）
-command = "bin/memo.exe"          # 実行ファイル（必須）。区切り文字が無ければ PATH から探す
+name = "memo"                     # identifier (required, unique)
+path = "/memo"                    # public URI (required, unique)
+command = "bin/memo.exe"          # executable (required); looked up in PATH if it has no separator
 args = ["-port", "{port}", "-base", "{base}"]
-dir = "bin"                       # 作業ディレクトリ。省略で yard.ini の場所
-env = ["MEMO_DATA=data"]          # 追加の環境変数
-log = "memo.log"                  # サーバの標準出力・標準エラー。省略で捨てる
-strip_prefix = false              # true なら path を取り除いて転送する
+dir = "bin"                       # working directory; defaults to the yard.ini directory
+env = ["MEMO_DATA=data"]          # extra environment variables
+log = "memo.log"                  # server stdout / stderr; discarded if omitted
+strip_prefix = false              # if true, strip path before forwarding
 restart = "on-failure"            # on-failure / always / never
-start_timeout = "30s"             # ポートが開くまで待つ時間
-disabled = false                  # true なら起動しない
+start_timeout = "30s"             # how long to wait for the port to open
+disabled = false                  # if true, do not start
 ```
 
-### args / env の置換
+### Substitutions in args / env
 
-| 文字列 | 内容 | 例 |
+| Placeholder | Value | Example |
 |---|---|---|
-| `{port}` | yard が割り当てた空きポート | `51234` |
-| `{base}` | 公開パス（末尾スラッシュあり） | `/memo/` |
-| `{path}` | 公開パス（末尾スラッシュなし） | `/memo` |
-| `{name}` | サーバ名 | `memo` |
+| `{port}` | free port assigned by yard | `51234` |
+| `{base}` | public path (with trailing slash) | `/memo/` |
+| `{path}` | public path (without trailing slash) | `/memo` |
+| `{name}` | server name | `memo` |
 | `{addr}` | `127.0.0.1:{port}` | `127.0.0.1:51234` |
 
-環境変数 `YARD_PORT` / `YARD_BASE` / `YARD_NAME` も常に渡す。
+The environment variables `YARD_PORT` / `YARD_BASE` / `YARD_NAME` are always passed as well.
 
-### サーバ側に求めること
+### Requirements for servers
 
-- 指定されたポート（`127.0.0.1` で接続できること）で待ち受ける。
-- `strip_prefix = false`（既定）のときは、公開パス（`{base}`）以下で動ける。
-  `strip_prefix = true` なら `/` で動くサーバでもよいが、HTML 内の絶対パスのリンクは書き換えない
-  （`Location` ヘッダだけは公開パスを付け直す）。
+- Listen on the given port (reachable at `127.0.0.1`).
+- With `strip_prefix = false` (the default), work under the public path (`{base}`).
+  With `strip_prefix = true` a server that runs at `/` is fine, but absolute links in HTML are not rewritten
+  (only the `Location` header gets the public path prepended again).
 
-## 転送
+## Forwarding
 
-- `path` の最長一致で転送先を決める。`/memo` は `/memo` と `/memo/...` に一致し、`/memox` には一致しない。
-- `Host` ヘッダは元のまま渡し、`X-Forwarded-For` / `X-Forwarded-Host` / `X-Forwarded-Proto` /
-  `X-Forwarded-Prefix` を付ける。
-- WebSocket と SSE はそのまま中継する。
-- 起動中のサーバへのリクエストは、ポートが開くまで（`start_timeout` まで）待つ。
-  停止中・再起動待ちなら `503`。
-- どのサーバにも一致しなければ `404`。`/` も、`path = "/"` のサーバを登録するまでは `404`。
+- The target is chosen by longest match on `path`. `/memo` matches `/memo` and `/memo/...`, but not `/memox`.
+- The `Host` header is passed through unchanged, and `X-Forwarded-For` / `X-Forwarded-Host` / `X-Forwarded-Proto` /
+  `X-Forwarded-Prefix` are added.
+- WebSocket and SSE are relayed as is.
+- Requests to a server that is starting wait until its port opens (up to `start_timeout`).
+  If it is stopped or waiting to restart, the response is `503`.
+- If no server matches, the response is `404`. `/` also returns `404` until a server with `path = "/"` is registered.
 
-サーバは異常終了すると 1 秒・2 秒・4 秒…（最大 1 分）と間を空けて再起動する。
-ポートは起動のたびに取り直す。サーバが作った子プロセスもまとめて止める
-（Windows はジョブオブジェクト、それ以外はプロセスグループ）。
+When a server exits abnormally, it is restarted after 1, 2, 4 seconds… (up to 1 minute).
+A new port is picked on each start. Child processes created by the server are stopped together with it
+(a job object on Windows, a process group elsewhere).
 
-## 管理画面 /.yard
+## Admin pages /.yard
 
-| URL | 内容 |
+| URL | Description |
 |---|---|
-| `GET /.yard/` | サーバ一覧（状態・PID・ポート・稼働時間、起動 / 停止 / 再起動） |
-| `GET /.yard/config` | 設定ファイルの編集。保存時に検証し、反映する |
-| `GET /.yard/servers/{name}/log` | サーバの出力（末尾 256KB）。`?raw` でテキスト |
-| `GET /.yard/health` | yard の生死と各サーバの状態（**接続元制限なし**） |
-| `GET /.yard/health/{name}` | サーバが running なら 200、それ以外は 503（**接続元制限なし**） |
-| `GET /.yard/api/servers` | サーバの状態（JSON） |
-| `POST /.yard/api/servers/{name}/{start\|stop\|restart}` | 操作（JSON） |
-| `POST /.yard/api/reload` | yard.ini を読み直して反映 |
-| `GET /.yard/api/config` | yard.ini の本文 |
-| `PUT /.yard/api/config` | 本文を検証して保存し、反映 |
+| `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
+| `GET /.yard/config` | Edit the configuration file. Validated and applied on save |
+| `GET /.yard/servers/{name}/log` | Server output (last 256KB). `?raw` for plain text |
+| `GET /.yard/health` | Whether yard is alive and the state of each server (**no client restriction**) |
+| `GET /.yard/health/{name}` | 200 if the server is running, otherwise 503 (**no client restriction**) |
+| `GET /.yard/api/servers` | Server states (JSON) |
+| `POST /.yard/api/servers/{name}/{start\|stop\|restart}` | Control a server (JSON) |
+| `POST /.yard/api/reload` | Reload and apply yard.ini |
+| `GET /.yard/api/config` | Contents of yard.ini |
+| `PUT /.yard/api/config` | Validate, save, and apply new contents |
 
-設定の反映では、内容が変わっていないサーバは動かしたまま、変わったサーバだけ再起動する。
-`yard.addr` / `yard.log` / `[service]` の変更は yard の再起動（`[service]` は再登録）が必要。
+When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
+Changes to `yard.addr` / `yard.log` / `[service]` require restarting yard (`[service]` requires re-registering).
 
-**設定の書き換えは任意のプログラムの実行と同義。** そのため `/.yard` は既定でループバックからしか
-操作できない。`admin.allow` を広げるときは接続元を絞ること。接続元の判定には
-`X-Forwarded-For` を使わない。別サイトからのフォーム送信（CSRF）は `Sec-Fetch-Site` / `Origin` で拒否する。
+**Editing the configuration is equivalent to running arbitrary programs.** For this reason `/.yard` is only
+accessible from loopback by default. If you widen `admin.allow`, keep the allowed clients narrow.
+`X-Forwarded-For` is not used to identify the client. Form submissions from other sites (CSRF) are rejected using `Sec-Fetch-Site` / `Origin`.
 
-## アクセスログの形式
+## Access log format
 
-Combined Log Format の後ろに、処理時間（ミリ秒）と転送先のサーバ名を付ける。
+Combined Log Format, followed by the processing time (milliseconds) and the name of the target server.
 
 ```
 192.168.10.5 - - [07/Nov/2026:17:30:38 +0900] "GET /memo/ HTTP/1.1" 200 1234 "-" "Mozilla/5.0 ..." 12 memo
 ```
 
-## 動作確認用のサーバ
+## Test server
 
-`_cmd/hello` は `-port` と `-base` を受け取る小さな Web サーバ。
+`_cmd/hello` is a small web server that accepts `-port` and `-base`.
 
 ```bash
 go build -o hello.exe ./_cmd/hello

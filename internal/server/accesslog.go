@@ -13,7 +13,7 @@ import (
 	"yard/internal/proc"
 )
 
-// accessLog は Combined Log Format に、処理時間（ミリ秒）と転送先サーバ名を足した形式で書く。
+// accessLog writes Combined Log Format followed by the processing time (ms) and the target server name.
 //
 //	127.0.0.1 - - [07/Nov/2026:17:00:00 +0900] "GET /memo/ HTTP/1.1" 200 1234 "-" "curl/8" 12 memo
 type accessLog struct {
@@ -40,7 +40,7 @@ func (a *accessLog) Close() {
 
 type targetKey struct{}
 
-// setTarget はアクセスログに出す転送先サーバ名を記録する。
+// setTarget records the target server name for the access log.
 func setTarget(r *http.Request, name string) {
 	if p, ok := r.Context().Value(targetKey{}).(*string); ok {
 		*p = name
@@ -94,9 +94,9 @@ func orDash(s string) string {
 	return strings.ReplaceAll(s, "\n", " ")
 }
 
-// recorder はステータスと送信バイト数を記録する。
-// Flush は Unwrap 経由で http.ResponseController が元の ResponseWriter に届ける。
-// Hijack だけは記録のため自前で受ける（WebSocket の 101 を残すため）。
+// recorder records the status and the number of bytes sent.
+// Flush reaches the underlying ResponseWriter via Unwrap and http.ResponseController.
+// Only Hijack is handled here, to record it (so that WebSocket 101s are logged).
 type recorder struct {
 	http.ResponseWriter
 	status   int

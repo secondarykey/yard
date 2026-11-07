@@ -36,24 +36,24 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 	"admin": func() string { return config.AdminPath },
 }).ParseFS(templateFS, "templates/*.html"))
 
-// logTailBytes はログ表示で読む末尾のバイト数。
+// logTailBytes is how many bytes from the end of a log are shown.
 const logTailBytes = 256 << 10
 
-// 管理画面の URL 構成（すべて /.yard 以下）。
+// Admin UI URLs (all under /.yard).
 //
-//	GET  /health                    yard の生死と各サーバの状態（接続元制限なし）
-//	GET  /health/{name}             サーバが running なら 200、そうでなければ 503（接続元制限なし）
-//	GET  /                          サーバ一覧
+//	GET  /health                      whether yard is alive and each server's state (no client restriction)
+//	GET  /health/{name}               200 if the server is running, otherwise 503 (no client restriction)
+//	GET  /                            server list
 //	POST /servers/{name}/{action}     start / stop / restart
-//	GET  /servers/{name}/log          サーバの出力（末尾）
-//	GET  /config                    設定ファイルの編集
-//	POST /config                    検証して保存し、反映する
-//	POST /reload                    設定ファイルを読み直して反映する
+//	GET  /servers/{name}/log          server output (tail)
+//	GET  /config                      edit the configuration file
+//	POST /config                      validate, save, and apply
+//	POST /reload                      reread and apply the configuration file
 //	GET  /api/servers                 JSON
 //	POST /api/servers/{name}/{action} JSON
-//	POST /api/reload                JSON
-//	GET  /api/config                設定ファイルの本文
-//	PUT  /api/config                検証して保存し、反映する
+//	POST /api/reload                  JSON
+//	GET  /api/config                  contents of the configuration file
+//	PUT  /api/config                  validate, save, and apply
 func (s *Server) adminHandler() http.Handler {
 	a := config.AdminPath
 
@@ -73,8 +73,8 @@ func (s *Server) adminHandler() http.Handler {
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 	})
 
-	// 設定の書き換えはプログラムの実行と同義なので、別サイトのページから
-	// フォームを送らせる攻撃（CSRF）を Sec-Fetch-Site / Origin で弾く。
+	// Editing the configuration is equivalent to running programs, so reject forms
+	// submitted from other sites' pages (CSRF) using Sec-Fetch-Site / Origin.
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusForbidden, "Forbidden", "cross-origin request")
@@ -87,7 +87,7 @@ func (s *Server) adminHandler() http.Handler {
 	return mux
 }
 
-// restrict は admin.allow に含まれない接続元を拒否する。
+// restrict rejects clients not listed in admin.allow.
 func (s *Server) restrict(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.Config()
@@ -101,7 +101,7 @@ func (s *Server) restrict(next http.Handler) http.Handler {
 	})
 }
 
-// ---- 生死確認 ----
+// ---- Health checks ----
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	type server struct {
@@ -130,7 +130,7 @@ func (s *Server) handleHealthServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, map[string]any{"name": st.Name, "state": st.State})
 }
 
-// ---- 画面 ----
+// ---- Pages ----
 
 type dashboardData struct {
 	Page    string
@@ -294,7 +294,7 @@ func (s *Server) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"notices": notices})
 }
 
-// ---- 共通 ----
+// ---- Common ----
 
 var errUnknownServer = errors.New("unknown server")
 
@@ -335,7 +335,7 @@ type errorData struct {
 	Detail string
 }
 
-// renderError はブラウザには HTML、それ以外にはテキストでエラーを返す。
+// renderError returns the error as HTML to browsers and as plain text otherwise.
 func (s *Server) renderError(w http.ResponseWriter, r *http.Request, code int, title, detail string) {
 	if !strings.Contains(r.Header.Get("Accept"), "text/html") {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -359,7 +359,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	enc.Encode(v)
 }
 
-// tail はファイルの末尾 n バイトを返す。途中で切った場合は最初の改行までを捨てる。
+// tail returns the last n bytes of a file. If truncated, it drops everything up to the first newline.
 func tail(name string, n int64) (string, bool, error) {
 	f, err := os.Open(name)
 	if err != nil {

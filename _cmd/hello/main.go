@@ -1,8 +1,8 @@
-// hello は yard の動作確認用の小さな Web サーバ。
+// hello is a small web server for trying out yard.
 //
 //	go build -o hello.exe ./_cmd/hello
 //
-// yard.ini の例:
+// Example yard.ini:
 //
 //	[[server]]
 //	name = "hello"

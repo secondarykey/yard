@@ -1,12 +1,12 @@
-// yard はイントラ内でサーバ群を公開するためのプロキシサーバ。
+// yard is a proxy server for publishing a set of servers inside an intranet.
 //
-// 設定ファイル（yard.ini）に書いたプログラムを空きポートで起動し、
-// 指定した URI 以下へのリクエストをそのプログラムへ転送する。
-// /.yard が yard 自身の管理画面になる。
+// It starts the programs listed in the configuration file (yard.ini) on free ports
+// and forwards requests under the given URIs to those programs.
+// /.yard is yard's own admin UI.
 //
-//	yard                前面で起動する
-//	yard init           設定ファイルの雛形を書き出す
-//	yard install        サービスとして登録する
+//	yard                run in the foreground
+//	yard init           write a template configuration file
+//	yard install        register as a service
 //	yard start / stop / restart / status / uninstall
 package main
 
@@ -72,17 +72,17 @@ func run() error {
 		DisplayName: cfg.Service.DisplayName,
 		Description: cfg.Service.Description,
 		UserName:    cfg.Service.User,
-		// サービスの作業ディレクトリは System32 や / になるため、
-		// 設定ファイルは絶対パスで渡しておく。ログの場所も install した利用者の
-		// %TEMP%\yard に固定する（LocalSystem の %TEMP% はシステム側になるため）。
+		// A service's working directory is System32 or /, so pass the
+		// configuration file as an absolute path. The log location is also pinned
+		// to %TEMP%\yard of the installing user (LocalSystem's %TEMP% is the system one).
 		Arguments: []string{"-config", cfgPath, "-logdir", logDir},
 		Option: service.KeyValue{
-			// systemd / launchd などで異常終了時に再起動させる。
+			// Restart on abnormal exit under systemd / launchd etc.
 			"Restart":     "on-failure",
 			"KeepAlive":   true,
 			"RunAtLoad":   true,
 			"UserService": cfg.Service.UserService,
-			// Windows: SCM の回復オプション（異常終了時に再起動）。
+			// Windows: SCM recovery options (restart on abnormal exit).
 			"OnFailure":              "restart",
 			"OnFailureDelayDuration": "5s",
 		},
@@ -105,7 +105,7 @@ func run() error {
 	return svc.Run()
 }
 
-// control は install/start/stop などのサブコマンドを処理する。
+// control handles subcommands such as install/start/stop.
 func control(svc service.Service, cmd, cfgPath, logDir string) error {
 	switch cmd {
 	case "status":
@@ -138,15 +138,16 @@ func control(svc service.Service, cmd, cfgPath, logDir string) error {
 	return nil
 }
 
-// stopForUninstall は、動いているサービスを止めてから戻る。
+// stopForUninstall stops the service if it is running before returning.
 //
-// kardianos/service の Uninstall は Windows と systemd では停止しない。
-// Windows では「削除予定」のまま動き続け、systemd では登録が消えたプロセスが
-// サーバごと残る。止められなかったときは登録も外さずにエラーにする。
+// kardianos/service's Uninstall does not stop the service on Windows or systemd.
+// On Windows it keeps running "marked for deletion", and on systemd the unregistered
+// process is left running along with its servers. If it cannot be stopped,
+// return an error without unregistering.
 func stopForUninstall(svc service.Service) error {
 	st, err := svc.Status()
 	if err != nil || st != service.StatusRunning {
-		// 未登録などで状態が取れない場合は、Uninstall 側のエラーに任せる。
+		// If the status is unavailable (e.g. not installed), leave it to Uninstall's error.
 		return nil
 	}
 	fmt.Println("stopping...")
@@ -191,11 +192,11 @@ func writeTemplate(path string) error {
 	return nil
 }
 
-// newLogger は yard 自身のログの出力先を決める。
+// newLogger decides where yard's own log goes.
 //
-//   - server.log があればそのファイルへ（前面起動時は標準エラーにも）。
-//   - 無ければ、前面起動時は標準エラー、サービス時は OS のログ
-//     （Windows はイベントログ、Linux は syslog/journald）へ。
+//   - If yard.log is set, to that file (and also to stderr when in the foreground).
+//   - Otherwise to stderr in the foreground, or to the OS log when running as a service
+//     (the Event Log on Windows, syslog/journald on Linux).
 func newLogger(svc service.Service, cfg *config.Config) (*log.Logger, func(), error) {
 	var w io.Writer = os.Stderr
 	closer := func() {}
@@ -217,7 +218,7 @@ func newLogger(svc service.Service, cfg *config.Config) (*log.Logger, func(), er
 			w = f
 		}
 	} else if !service.Interactive() {
-		flags = 0 // OS のログが時刻を付ける
+		flags = 0 // the OS log adds timestamps
 	}
 	return log.New(w, "", flags), closer, nil
 }
@@ -228,7 +229,7 @@ func (w serviceWriter) Write(p []byte) (int, error) {
 	return len(p), w.l.Info(strings.TrimRight(string(p), "\n"))
 }
 
-// program は service.Interface を満たす。
+// program implements service.Interface.
 type program struct {
 	cfgPath string
 	cfg     *config.Config
@@ -238,8 +239,8 @@ type program struct {
 	http *http.Server
 }
 
-// Start はブロックしてはいけない。listen までを同期で行い、
-// ポート競合などの起動失敗をサービスマネージャへ伝える。
+// Start must not block. It does everything up to listen synchronously so that
+// startup failures such as port conflicts are reported to the service manager.
 func (p *program) Start(service.Service) error {
 	ln, err := net.Listen("tcp", p.cfg.Yard.Addr)
 	if err != nil {
@@ -256,8 +257,8 @@ func (p *program) Start(service.Service) error {
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          p.logger,
-		// 本文の読み書きには期限を設けない。サーバ側の長時間のレスポンス
-		// （SSE、WebSocket、大きなダウンロード）を途中で切らないため。
+		// No deadlines on reading/writing bodies, so that long-running responses
+		// from servers (SSE, WebSocket, large downloads) are not cut off.
 	}
 	p.logger.Printf("listening on %s (config: %s, logdir: %s, %d servers)", ln.Addr(), p.cfgPath, p.cfg.LogDir, len(p.cfg.Servers))
 	go func() {
@@ -268,7 +269,7 @@ func (p *program) Start(service.Service) error {
 	return nil
 }
 
-// Stop は素早く返す必要がある。Windows の SCM の停止待ちは既定で 20 秒程度。
+// Stop must return quickly. The Windows SCM waits about 20 seconds by default.
 func (p *program) Stop(service.Service) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -285,20 +286,20 @@ func (p *program) Stop(service.Service) error {
 }
 
 func usage() {
-	fmt.Fprintf(flag.CommandLine.Output(), `yard - サーバ群をイントラ内で公開するプロキシサーバ
+	fmt.Fprintf(flag.CommandLine.Output(), `yard - a proxy server for publishing servers inside an intranet
 
 usage:
-  yard [flags]              前面で起動する
-  yard [flags] <command>    サービスを操作する
+  yard [flags]              run in the foreground
+  yard [flags] <command>    control the service
 
 commands:
-  init        設定ファイルの雛形を書き出す
-  install     サービスとして登録する（-config の絶対パスが登録される）
-  uninstall   動いていれば停止し、登録を解除する
-  start       開始
-  stop        停止
-  restart     再起動
-  status      状態を表示する
+  init        write a template configuration file
+  install     register as a service (absolute -config / -logdir paths are registered)
+  uninstall   stop if running, then unregister
+  start       start the service
+  stop        stop the service
+  restart     restart the service
+  status      show the service status
 
 flags:
 `)

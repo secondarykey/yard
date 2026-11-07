@@ -1,12 +1,12 @@
-// Package proc は yard が起動するサーバのプロセスを管理する。
+// Package proc manages the processes of the servers that yard starts.
 //
-// 1つのサーバにつき1つの監視 goroutine（Proc.supervise）が、
-// 空きポートの確保 → 起動 → ポートが開くのを待つ → 終了を待つ → 再起動
-// を繰り返す。ポートは起動のたびに取り直す（前回のポートが TIME_WAIT や
-// 他プロセスに取られていても起動できるように）。
+// Each server has one supervising goroutine (Proc.supervise) that repeats
+// allocate a free port → start → wait for the port to open → wait for exit → restart.
+// A new port is picked on every start (so that it can start even if the previous port
+// is in TIME_WAIT or taken by another process).
 //
-// サーバが子プロセスを作っても取り残さないよう、停止はプロセスツリー単位で行う
-// （Windows はジョブオブジェクト、それ以外はプロセスグループ。kill_*.go）。
+// Stopping works on the whole process tree so that child processes created by a server
+// are not left behind (a job object on Windows, a process group elsewhere; tree_*.go).
 package proc
 
 import (
@@ -27,27 +27,27 @@ import (
 	"yard/internal/config"
 )
 
-// State はサーバの状態。
+// State is the state of a server.
 type State string
 
 const (
-	StateStopped  State = "stopped"  // 停止している（停止操作または正常終了）
-	StateStarting State = "starting" // 起動してポートが開くのを待っている
-	StateRunning  State = "running"  // ポートが開いて転送できる
-	StateBackoff  State = "backoff"  // 異常終了して再起動を待っている
-	StateFailed   State = "failed"   // 異常終了し、再起動しない
-	StateDisabled State = "disabled" // 設定で無効化されている
+	StateStopped  State = "stopped"  // stopped (by a stop request or normal exit)
+	StateStarting State = "starting" // started and waiting for the port to open
+	StateRunning  State = "running"  // port is open and requests can be forwarded
+	StateBackoff  State = "backoff"  // exited abnormally and waiting to restart
+	StateFailed   State = "failed"   // exited abnormally and will not restart
+	StateDisabled State = "disabled" // disabled in the configuration
 )
 
 const (
 	minBackoff  = 1 * time.Second
 	maxBackoff  = 1 * time.Minute
-	stopTimeout = 5 * time.Second // 穏当な停止を待つ時間。過ぎたら強制終了する
-	// 起動後この時間以上動いていれば、次の異常終了での待ち時間を最短に戻す。
+	stopTimeout = 5 * time.Second // how long to wait for a graceful stop before killing
+	// If it ran at least this long, the wait before the next restart goes back to the minimum.
 	stableAfter = 30 * time.Second
 )
 
-// Status は外部に見せるサーバの状態。
+// Status is the externally visible state of a server.
 type Status struct {
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
@@ -61,7 +61,7 @@ type Status struct {
 	Log       bool      `json:"log"`
 }
 
-// Proc は1つのサーバのプロセス。
+// Proc is the process of one server.
 type Proc struct {
 	conf   config.Server
 	logger *log.Logger
@@ -74,12 +74,12 @@ type Proc struct {
 	restarts  int
 	exitCode  *int
 	lastErr   string
-	ready     chan struct{} // starting の間だけ開いている。setStateLocked が管理する
+	ready     chan struct{} // open only while starting; managed by setStateLocked
 	cancel    context.CancelFunc
-	done      chan struct{} // 監視 goroutine が終わったら close される
+	done      chan struct{} // closed when the supervising goroutine finishes
 }
 
-// New は Proc を作る。起動はしない。
+// New creates a Proc without starting it.
 func New(t config.Server, logger *log.Logger) *Proc {
 	p := &Proc{conf: t, logger: logger, state: StateStopped, ready: make(chan struct{})}
 	if t.Disabled {
@@ -88,10 +88,10 @@ func New(t config.Server, logger *log.Logger) *Proc {
 	return p
 }
 
-// Config は設定を返す。
+// Config returns the configuration.
 func (p *Proc) Config() config.Server { return p.conf }
 
-// Status は現在の状態を返す。
+// Status returns the current state.
 func (p *Proc) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -110,7 +110,7 @@ func (p *Proc) Status() Status {
 	return s
 }
 
-// Target は転送先の "127.0.0.1:port" を返す。動いていなければ空。
+// Target returns the forwarding target "127.0.0.1:port", or "" if not running.
 func (p *Proc) Target() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -120,8 +120,8 @@ func (p *Proc) Target() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(p.port))
 }
 
-// WaitReady は起動中のサーバが動き出すのを ctx が終わるまで待ち、転送先を返す。
-// 起動中でなければ待たずに Target を返す。
+// WaitReady waits (until ctx is done) for a starting server to become ready and returns the target.
+// If it is not starting, it returns Target without waiting.
 func (p *Proc) WaitReady(ctx context.Context) string {
 	p.mu.Lock()
 	starting := p.state == StateStarting
@@ -136,7 +136,7 @@ func (p *Proc) WaitReady(ctx context.Context) string {
 	return p.Target()
 }
 
-// Start は監視を始める。既に動いていれば何もしない。
+// Start begins supervising. It does nothing if already running.
 func (p *Proc) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -152,13 +152,13 @@ func (p *Proc) Start() error {
 	p.restarts = 0
 	p.lastErr = ""
 	p.exitCode = nil
-	// goroutine が動き出す前に来たリクエストも起動を待てるよう、ここで starting にする。
+	// Set starting here so that requests arriving before the goroutine runs also wait for startup.
 	p.setStateLocked(StateStarting)
 	go p.supervise(ctx, p.done)
 	return nil
 }
 
-// Stop はプロセスを止め、監視が終わるまで待つ。
+// Stop stops the process and waits for supervision to finish.
 func (p *Proc) Stop() {
 	p.mu.Lock()
 	cancel, done := p.cancel, p.done
@@ -170,7 +170,7 @@ func (p *Proc) Stop() {
 	<-done
 }
 
-// Restart は止めてから起動し直す。
+// Restart stops and then starts again.
 func (p *Proc) Restart() error {
 	p.Stop()
 	return p.Start()
@@ -182,8 +182,8 @@ func (p *Proc) setState(s State) {
 	p.mu.Unlock()
 }
 
-// setStateLocked は状態を変える。starting に入るときに ready を作り直し、
-// starting から出るときに close して、WaitReady で待っている転送を起こす。
+// setStateLocked changes the state. It recreates ready when entering starting and
+// closes it when leaving starting, waking up requests waiting in WaitReady.
 func (p *Proc) setStateLocked(s State) {
 	if s == StateStarting && p.state != StateStarting {
 		p.ready = make(chan struct{})
@@ -194,7 +194,7 @@ func (p *Proc) setStateLocked(s State) {
 	p.state = s
 }
 
-// supervise は起動と再起動を繰り返す。ctx が終わると子プロセスを止めて戻る。
+// supervise starts and restarts repeatedly. When ctx is done it stops the child process and returns.
 func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 	defer func() {
 		p.mu.Lock()
@@ -256,7 +256,7 @@ func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 	}
 }
 
-// runOnce は1回起動して終了まで待つ。終了コードと理由を返す。
+// runOnce starts once and waits for exit. It returns the exit code and the reason.
 func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	port, err := FreePort()
 	if err != nil {
@@ -294,7 +294,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
-	// ポートが開くまで待つ。
+	// Wait for the port to open.
 	readyCh := make(chan bool, 1)
 	waitCtx, stopWait := context.WithTimeout(ctx, p.conf.StartTimeout.Duration)
 	defer stopWait()
@@ -330,7 +330,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	}
 }
 
-// terminate は穏当に止め、時間内に終わらなければ強制終了する。
+// terminate stops gracefully, and kills if it does not exit in time.
 func (p *Proc) terminate(tree *processTree, exited <-chan error) (*int, error) {
 	p.logger.Printf("[%s] stopping", p.conf.Name)
 	if err := tree.Interrupt(); err == nil {
@@ -362,8 +362,8 @@ func exitStatus(cmd *exec.Cmd, err error) (*int, error) {
 	return &code, fmt.Errorf("exit status %d", code)
 }
 
-// command は置換済みの引数・環境変数で exec.Cmd を作る。
-// 出力先ファイルを開いた場合はそれも返す（呼び出し側で閉じる）。
+// command builds an exec.Cmd with substituted arguments and environment.
+// If it opened an output file, that is returned too (the caller closes it).
 func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
 	t := p.conf
 	r := Replacer(t, port)
@@ -398,11 +398,11 @@ func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
 		cmd.Stdout, cmd.Stderr = f, f
 		out = f
 	}
-	// Stdout/Stderr が nil なら os.DevNull に繋がる（出力は捨てる）。
+	// If Stdout/Stderr are nil they are connected to os.DevNull (output is discarded).
 	return cmd, out, nil
 }
 
-// Replacer は args / env の置換子を返す。
+// Replacer returns the substitution replacer for args / env.
 func Replacer(t config.Server, port int) *strings.Replacer {
 	ps := strconv.Itoa(port)
 	return strings.NewReplacer(
@@ -414,7 +414,7 @@ func Replacer(t config.Server, port int) *strings.Replacer {
 	)
 }
 
-// base は公開パスを末尾スラッシュ付きで返す。
+// base returns the public path with a trailing slash.
 func base(p string) string {
 	if strings.HasSuffix(p, "/") {
 		return p
@@ -422,7 +422,7 @@ func base(p string) string {
 	return p + "/"
 }
 
-// OpenLog は追記用にログファイルを開く。ディレクトリが無ければ作る。
+// OpenLog opens a log file for appending, creating the directory if needed.
 func OpenLog(name string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return nil, err
@@ -430,9 +430,9 @@ func OpenLog(name string) (*os.File, error) {
 	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }
 
-// FreePort はループバックの空きポートを1つ返す。
-// 閉じてから子プロセスが使うまでの間に取られる可能性はあるが、
-// その場合は子が起動に失敗し、再起動時に別のポートを取り直す。
+// FreePort returns one free loopback port.
+// It may be taken between closing it and the child using it; in that case the child
+// fails to start and a different port is picked on restart.
 func FreePort() (int, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -442,7 +442,7 @@ func FreePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// waitPort はポートに接続できるまで待つ。ctx が終われば false。
+// waitPort waits until the port accepts connections. It returns false when ctx is done.
 func waitPort(ctx context.Context, port int) bool {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	d := net.Dialer{Timeout: 500 * time.Millisecond}

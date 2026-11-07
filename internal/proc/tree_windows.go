@@ -8,14 +8,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// processTree は Windows ではジョブオブジェクトでプロセスツリーをまとめる。
+// processTree groups the process tree with a job object on Windows.
 //
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE を付けているので、yard が異常終了して
-// ハンドルが閉じられた場合も、サーバとその子プロセスは OS が終了させる。
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is set, so even if yard dies abnormally and
+// the handle is closed, the OS terminates the server and its child processes.
 //
-// Windows にはコンソールを持たないプロセスへ穏当に終了を伝える汎用の手段が無い
-// （サービスにはコンソールが無く、GenerateConsoleCtrlEvent が使えない）ため、
-// Interrupt は失敗を返し、呼び出し側は即座に Kill する。
+// Windows has no general way to ask a process without a console to exit gracefully
+// (a service has no console, so GenerateConsoleCtrlEvent cannot be used), so
+// Interrupt returns an error and the caller kills immediately.
 type processTree struct {
 	cmd *exec.Cmd
 	job windows.Handle
@@ -23,8 +23,8 @@ type processTree struct {
 
 func startTree(cmd *exec.Cmd) (*processTree, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// サーバにコンソールを作らせない（出力はファイルか捨てるかのどちらか）。
-		// 別グループにして、yard を Ctrl+C したときにサーバへ直接届かないようにする。
+		// Do not give the server a console (output goes to a file or is discarded).
+		// Use a separate group so that Ctrl+C on yard is not delivered to the server directly.
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
 		HideWindow:    true,
 	}
@@ -49,16 +49,16 @@ func startTree(cmd *exec.Cmd) (*processTree, error) {
 		return nil, err
 	}
 
-	// 起動直後からジョブに入れるまでの間に作られた孫プロセスは漏れうる。
-	// CREATE_SUSPENDED で起動すれば防げるが、os/exec からはメインスレッドを
-	// 再開する手段が無いため受け入れている。
+	// Grandchild processes created between start and being assigned to the job can leak.
+	// Starting with CREATE_SUSPENDED would prevent this, but os/exec offers no way to
+	// resume the main thread, so this is accepted.
 	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err == nil {
 		err = windows.AssignProcessToJobObject(job, h)
 		windows.CloseHandle(h)
 	}
 	if err != nil {
-		// ジョブに入れられなくても、本体だけは止められるので動かし続ける。
+		// Even without the job, the main process can still be stopped, so keep it running.
 		windows.CloseHandle(job)
 		return &processTree{cmd: cmd}, nil
 	}
@@ -76,7 +76,7 @@ func (t *processTree) Kill() error {
 
 func (t *processTree) Close() {
 	if t.job != 0 {
-		// KILL_ON_JOB_CLOSE により、残っている孫プロセスもここで終わる。
+		// With KILL_ON_JOB_CLOSE, remaining grandchild processes also end here.
 		windows.CloseHandle(t.job)
 		t.job = 0
 	}

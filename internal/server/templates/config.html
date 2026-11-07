@@ -1,15 +1,15 @@
-{{template "head" "設定"}}
+{{template "head" "Config"}}
 {{template "nav" .Page}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
-  {{if .Saved}}<div class="msg ok">保存して反映しました</div>{{end}}
+  {{if .Saved}}<div class="msg ok">Saved and applied</div>{{end}}
   {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
   <form method="post" action="{{admin}}/config">
     <div class="bar">
-      <h1>設定</h1>
+      <h1>Config</h1>
       <span class="muted mono">{{.File}}</span>
       <span class="spacer"></span>
-      <button class="primary">保存して反映</button>
+      <button class="primary">Save and apply</button>
     </div>
     <div class="panel">
       <textarea class="mono" name="config" spellcheck="false" autocomplete="off">{{.Text}}</textarea>

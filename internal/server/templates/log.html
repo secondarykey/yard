@@ -1,4 +1,4 @@
-{{template "head" (print .Name " ログ")}}
+{{template "head" (print .Name " log")}}
 {{template "nav" .Page}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
@@ -6,8 +6,8 @@
     <h1>{{.Name}}</h1>
     <span class="muted mono">{{.File}}</span>
     <span class="spacer"></span>
-    <a class="btn" href="?">再読込</a>
-    <a class="btn" href="?raw">テキスト</a>
+    <a class="btn" href="?">Refresh</a>
+    <a class="btn" href="?raw">Plain text</a>
   </div>
   <div class="panel">
     <pre class="log mono" id="log">{{if .Truncated}}…

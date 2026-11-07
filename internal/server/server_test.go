@@ -16,8 +16,8 @@ import (
 	"yard/internal/proc"
 )
 
-// テストバイナリ自身をサーバとして起動する。YARD_TEST_HELPER=1 のときは
-// テストを走らせず、YARD_PORT で待ち受ける小さなサーバになる。
+// The test binary itself is started as a server. With YARD_TEST_HELPER=1 it runs
+// no tests and becomes a small server listening on YARD_PORT.
 func TestMain(m *testing.M) {
 	if os.Getenv("YARD_TEST_HELPER") == "1" {
 		helper()
@@ -118,7 +118,7 @@ func waitState(t *testing.T, p *proc.Proc, want proc.State) proc.Status {
 func TestProxy(t *testing.T) {
 	s, ts, dir := newTestServer(t, echoServer)
 
-	// 起動中でも最初のリクエストはポートが開くまで待たされる。
+	// Even while starting, the first request waits until the port opens.
 	code, body, _ := get(t, ts.URL+"/echo/a/b?q=1")
 	if code != 200 {
 		t.Fatalf("code = %d, body = %s", code, body)
@@ -138,16 +138,16 @@ func TestProxy(t *testing.T) {
 		}
 	}
 
-	// 一致しないパス
+	// Non-matching path
 	if code, _, _ := get(t, ts.URL+"/echox"); code != 404 {
 		t.Errorf("/echox = %d", code)
 	}
-	// "/" のサーバが無ければルートも 404
+	// Without a "/" server, the root is 404 too
 	if code, _, _ := get(t, ts.URL+"/"); code != 404 {
 		t.Errorf("/ = %d", code)
 	}
 
-	// サーバの出力とアクセスログ
+	// Server output and access log
 	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
 		t.Errorf("server log = %q", b)
 	}
@@ -202,7 +202,7 @@ func TestAdmin(t *testing.T) {
 	p, _ := s.mgr.Get("echo")
 	waitState(t, p, proc.StateRunning)
 
-	// 停止すると 503、生死確認も 503
+	// After stopping: 503, and the health check is 503 too
 	res, err := http.Post(ts.URL+"/.yard/api/servers/echo/stop", "", nil)
 	if err != nil || res.StatusCode != 200 {
 		t.Fatalf("stop: %v %v", res, err)
@@ -217,7 +217,7 @@ func TestAdmin(t *testing.T) {
 		t.Errorf("health = %d %s", code, body)
 	}
 
-	// 画面
+	// Pages
 	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/servers/echo/log"} {
 		if code, body, _ := get(t, ts.URL+u); code != 200 || !strings.Contains(body, "<html") {
 			t.Errorf("%s = %d", u, code)
@@ -227,7 +227,7 @@ func TestAdmin(t *testing.T) {
 		t.Errorf("/.yard = %d %q", code, h.Get("Location"))
 	}
 
-	// 不正な設定は保存しない
+	// An invalid configuration is not saved
 	path := filepath.Join(dir, config.FileName)
 	before, _ := os.ReadFile(path)
 	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[[server]]\nname = 1\n"))
@@ -239,7 +239,7 @@ func TestAdmin(t *testing.T) {
 		t.Error("invalid config was written")
 	}
 
-	// 正しい設定は保存して反映する（サーバが消える）
+	// A valid configuration is saved and applied (the server goes away)
 	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[yard]\n"))
 	res, err = http.DefaultClient.Do(req)
 	if err != nil || res.StatusCode != 200 {
@@ -249,7 +249,7 @@ func TestAdmin(t *testing.T) {
 		t.Error("server should be removed")
 	}
 
-	// 別サイトからのフォーム送信は拒否する
+	// Form submissions from other sites are rejected
 	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/.yard/reload", nil)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	res, err = http.DefaultClient.Do(req)

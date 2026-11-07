@@ -68,10 +68,10 @@ func TestParseErrors(t *testing.T) {
 		"unknown key": `
 [yard]
 adr = ":80"`,
-		"[server] は [yard] に": `
+		"rename [server] to [yard]": `
 [server]
 addr = ":80"`,
-		"[[tool]] は [[server]] に": `
+		"[[tool]] to [[server]]": `
 [[tool]]
 name = "a"`,
 		"duplicate name": `

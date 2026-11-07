@@ -7,8 +7,8 @@ import (
 	"syscall"
 )
 
-// processTree は Windows 以外ではプロセスグループでプロセスツリーをまとめる。
-// サーバを新しいグループのリーダーとして起動し、グループ全体にシグナルを送る。
+// processTree groups the process tree with a process group on non-Windows systems.
+// The server is started as the leader of a new group, and signals go to the whole group.
 type processTree struct {
 	cmd *exec.Cmd
 }
@@ -29,7 +29,7 @@ func (t *processTree) Kill() error {
 	return syscall.Kill(-t.cmd.Process.Pid, syscall.SIGKILL)
 }
 
-// Close は本体の終了後に、グループに残った子プロセスを片付ける。
+// Close cleans up child processes left in the group after the main process exits.
 func (t *processTree) Close() {
 	syscall.Kill(-t.cmd.Process.Pid, syscall.SIGKILL)
 }

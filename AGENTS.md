@@ -1,63 +1,67 @@
 # AGENTS.md
 
-yard の開発の概要。利用方法・設定・URL は [README.md](README.md)、
-仕様の原文は [_docs/spec.md](_docs/spec.md)、サービスの OS 差は [_docs/service.md](_docs/service.md) を参照。
+Development overview of yard. For usage, configuration, and URLs see [README.md](README.md);
+for the original specification see [_docs/spec.md](_docs/spec.md); for OS differences in service behavior see [_docs/service.md](_docs/service.md).
 
-## 何を作っているか
+## What this is
 
-イントラ内でサーバ群を公開するプロキシサーバ。設定に書いたプログラムを空きポートで起動・監視し、
-URI の接頭辞で振り分けて転送する。`/.yard` が管理画面。配布物は実行ファイル1つ。
+A proxy server that publishes a set of servers inside an intranet. It starts the programs listed in the
+configuration on free ports, monitors them, and forwards requests by URI prefix. `/.yard` is the admin UI.
+It ships as a single executable.
 
-**用語:** yard が起動して公開するものは「サーバ」と呼ぶ（設定は `[[server]]`、型は `config.Server`、
-URL は `/.yard/servers/...`）。登録されるのがツールとは限らないので「ツール」とは呼ばない。
-yard 自身の待ち受けとログの設定は `[yard]`（`config.Yard`）。`_docs/spec.md` は原文なので書き換えない。
+**Terminology:** what yard starts and publishes is called a "server" (`[[server]]` in the configuration,
+`config.Server` as a type, `/.yard/servers/...` in URLs). Do not call them "tools", since what gets registered
+is not necessarily a tool. yard's own listen and log settings are `[yard]` (`config.Yard`).
 
-**Go 側の外部依存は `kardianos/service`、`BurntSushi/toml`、`golang.org/x/sys` のみ。**
-ルータは `net/http.ServeMux`（メソッド付きパターン・ワイルドカード）、
-画面は `html/template` + `embed` で、フロントエンドのビルドは無い。この方針は維持する。
+**Language:** everything in the repository (code, comments, messages, UI, docs) is written in English,
+except `_docs/spec.md`, which is the original Japanese specification and must not be rewritten.
 
-## 構成
+**The only external Go dependencies are `kardianos/service`, `BurntSushi/toml`, and `golang.org/x/sys`.**
+Routing uses `net/http.ServeMux` (method patterns and wildcards), and the UI uses `html/template` + `embed`
+with no frontend build. Keep it that way.
+
+## Layout
 
 ```
-main.go                 エントリポイント、サブコマンド、サービス制御、ロガー
-internal/config         yard.ini の読み込み・検証・相対パス解決・admin.allow
-internal/proc           サーバのプロセス管理（Proc: 1サーバ、Manager: 全体と最長一致）
-  tree_windows.go       ジョブオブジェクトでプロセスツリーをまとめる
-  tree_unix.go          プロセスグループでまとめる
-internal/server         HTTP（転送・アクセスログ・/.yard）
-  templates/            管理画面の HTML
-_cmd/hello              動作確認用のサーバ
+main.go                 entry point, subcommands, service control, logger
+internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
+internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
+  tree_windows.go       groups the process tree with a job object
+  tree_unix.go          groups it with a process group
+internal/server         HTTP (forwarding, access log, /.yard)
+  templates/            admin UI HTML
+_cmd/hello              server for manual testing
 ```
 
-## 壊しやすい決まり
+## Rules that are easy to break
 
-- **相対パスの基準は2つ。** `command` / `dir` は yard.ini のディレクトリ（`config.Abs`）、
-  `log` / `access_log` はログのディレクトリ（`config.LogPath`）。サービスの作業ディレクトリは
-  System32 や `/` になるので、どちらかを通さずにパスを使わない。`command` は区切り文字を含むときだけ
-  パスとして解決し、含まなければ PATH 検索に任せる。
-- **既定の場所は `%APPDATA%\yard\yard.ini` と `%TEMP%\yard`。** `install` は両方を絶対パス
-  （`-config` / `-logdir`）でサービスに登録する。LocalSystem で動くと `%APPDATA%` / `%TEMP%` が
-  システム側に変わるため、実行時に解決し直してはいけない。
-- **`/.yard` の接続元判定は `RemoteAddr` のみ。** `X-Forwarded-For` などを見ると詐称で抜けられる。
-  設定の書き換えは任意のプログラムの実行と同義なので、既定はループバックのみ。
-- **`/.yard` の書き込み系は `http.CrossOriginProtection` の内側に置く。** 外すと CSRF で設定を書き換えられる。
-  `/.yard/health` だけは制限の外（監視用）。
-- **Proc の状態遷移は `setStateLocked` を通す。** `starting` の間だけ `ready` チャネルが開いていて、
-  転送側（`WaitReady`）はそれを待つ。`p.state` を直接書き換えると待ちが解けなくなる。
-  `Start()` は goroutine を起こす前に同期で `starting` にする（直後のリクエストを待たせるため）。
-- **サーバの出力は `*os.File` を直接渡す（パイプにしない）。** パイプにすると、孫プロセスが
-  パイプを掴んだままのとき `cmd.Wait` が返らない。
-- **停止はプロセスツリー単位。** Windows はジョブオブジェクト（KILL_ON_JOB_CLOSE）なので、
-  yard が強制終了されてもサーバは残らない。Unix はプロセスグループへ SIGTERM → SIGKILL。
-- **設定の反映（`Manager.Apply`）は差分で行う。** `config.Server` が `reflect.DeepEqual` で等しいサーバは
-  動かしたまま。`config.Server` に比較できない値（関数など）を持たせない。
-- **設定の保存は検証してから。** `SaveConfig` は `config.Parse` が通ったときだけ一時ファイル経由で置き換える。
-- `http.Server` には `ReadHeaderTimeout` のみ設定する。SSE / WebSocket / 大きなレスポンスを切らないため。
-- サービス: `Start` はブロックしない（listen までを同期で行い失敗を SCM に返す）、`Stop` は素早く返す。
-  Windows サービスにシグナルは届かない。
-- 管理画面に操作方法の説明文は書かない。
+- **Relative paths have two bases.** `command` / `dir` are relative to the yard.ini directory (`config.Abs`),
+  `log` / `access_log` to the log directory (`config.LogPath`). A service's working directory is
+  System32 or `/`, so never use a path without going through one of them. `command` is resolved as a path
+  only when it contains a separator; otherwise it is left to PATH lookup.
+- **The default locations are `%APPDATA%\yard\yard.ini` and `%TEMP%\yard`.** `install` registers both
+  as absolute paths (`-config` / `-logdir`) in the service. Under LocalSystem `%APPDATA%` / `%TEMP%`
+  change to the system's locations, so do not resolve them again at run time.
+- **`/.yard` decides the client from `RemoteAddr` only.** Looking at `X-Forwarded-For` or similar allows spoofing.
+  Editing the configuration is equivalent to running arbitrary programs, so the default is loopback only.
+- **Keep the write endpoints of `/.yard` inside `http.CrossOriginProtection`.** Without it the configuration
+  can be rewritten via CSRF. Only `/.yard/health` is outside the restrictions (for monitoring).
+- **Proc state transitions go through `setStateLocked`.** The `ready` channel is open only while `starting`,
+  and the forwarding side (`WaitReady`) waits on it. Writing `p.state` directly leaves waiters stuck.
+  `Start()` sets `starting` synchronously before spawning the goroutine (so that immediate requests wait).
+- **Pass `*os.File` directly as server output (not a pipe).** With a pipe, `cmd.Wait` does not return
+  while a grandchild process still holds the pipe.
+- **Stopping works on the whole process tree.** On Windows it is a job object (KILL_ON_JOB_CLOSE), so
+  servers do not survive even if yard is killed. On Unix, SIGTERM → SIGKILL to the process group.
+- **Applying the configuration (`Manager.Apply`) is diff-based.** Servers whose `config.Server` is equal under
+  `reflect.DeepEqual` keep running. Do not give `config.Server` non-comparable values (functions, etc.).
+- **Validate before saving the configuration.** `SaveConfig` replaces the file via a temporary file only when `config.Parse` succeeds.
+- Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
+- Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
+  Windows services do not receive signals.
+- Do not put usage instructions in the admin UI.
 
-## ビルドとテスト
+## Build and test
 
 ```bash
 go build -o yard.exe .
@@ -65,14 +69,14 @@ go test ./...
 GOOS=linux go vet ./... && GOOS=darwin go vet ./...
 ```
 
-`internal/server` のテストは、テストバイナリ自身を `YARD_TEST_HELPER=1` で起動してサーバ役にしている
-（`TestMain`）。実際にプロセスを起動・再起動するため数秒かかる。
+The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=1` to act as a server
+(`TestMain`). They really start and restart processes, so they take a few seconds.
 
-## 既知の課題
+## Known issues
 
-- サーバのログ（`log`）にローテーションが無い。
-- Windows ではサーバへ穏当な停止を伝える手段が無く、停止は即時終了になる。
-- 起動直後〜ジョブオブジェクトに入れるまでの間に作られた孫プロセスは漏れうる（Windows）。
-- Unix で yard が SIGKILL された場合、サーバが残る（pdeathsig を使っていない）。
-- `strip_prefix` では HTML 内の絶対パスや Cookie の Path は書き換えない。
-- サービス登録は Windows・Linux・macOS とも実機未確認（_docs/service.md）。
+- Server logs (`log`) are not rotated.
+- On Windows there is no way to ask a server to stop gracefully; stopping terminates it immediately.
+- Grandchild processes created between start and being put in the job object can leak (Windows).
+- On Unix, if yard is killed with SIGKILL, servers are left running (pdeathsig is not used).
+- `strip_prefix` does not rewrite absolute paths in HTML or Cookie paths.
+- Service registration is unverified on real Windows, Linux, and macOS machines (_docs/service.md).
