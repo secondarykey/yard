@@ -32,6 +32,7 @@ internal/logfile        yard's own log and the access log as one file per day (w
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
+  log_windows.go        opens server output so that it can be renamed while open ({name}-{pid}.log)
 internal/server         HTTP (forwarding, access log, /.yard)
   auth.go               login sessions for /.yard
   tls.go                HTTPS certificate selection and the http → https redirect
@@ -41,9 +42,10 @@ _cmd/hello              server for manual testing
 
 ## Rules that are easy to break
 
-- **Relative paths have two bases.** `command` / `dir` / `cert` / `key` are relative to the yard.ini directory (`config.Abs`),
-  `log` / `access_log` to the log directory (`config.LogPath`). A service's working directory is
-  System32 or `/`, so never use a path without going through one of them. `command` is resolved as a path
+- **Relative paths are relative to the yard.ini directory (`config.Abs`); logs have fixed names in the log directory.**
+  `command` / `dir` / `cert` / `key` go through `config.Abs`. `log` / `access_log` are booleans; the files are
+  `config.YardLog` / `config.AccessLog` and `{name}-{pid}.log` under `config.Server.LogDir`. A service's working
+  directory is System32 or `/`, so never use a path that does not go through these. `command` is resolved as a path
   only when it contains a separator; otherwise it is left to PATH lookup.
 - **The default locations are `%APPDATA%\yard\yard.ini` and `%TEMP%\yard`.** `install` registers both
   as absolute paths (`-config` / `-logdir`) in the service. Under LocalSystem `%APPDATA%` / `%TEMP%`
@@ -79,9 +81,12 @@ _cmd/hello              server for manual testing
   Keep cookies' `Secure` and `X-Forwarded-Proto` derived from `r.TLS`.
   A server's own `https` is only how yard reaches it: yard connects over TLS without verifying the
   certificate (the target is `127.0.0.1:{port}`), and it does not change `X-Forwarded-Proto`.
-- **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output is not.**
-  Server output stays a single file because it is passed to the process as `*os.File` (above); splitting it
-  by day would need a pipe that yard reads, which can block the server when yard falls behind.
+- **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output one file per start.**
+  Server output is passed to the process as `*os.File` (above), so it cannot be split by day; splitting it
+  would need a pipe that yard reads, which can block the server when yard falls behind.
+  The pid is not known until the process exists, so the file is opened as `{name}-starting.log` and renamed to
+  `{name}-{pid}.log` right after start (`Proc.nameLog`). On Windows that only works because `openLog` opens it
+  with `FILE_SHARE_DELETE`; `os.OpenFile` does not. `Proc.LogFile` is the file of the current or last start.
   The access log has no markers (`DisableMarkers`) so that it stays parseable.
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
@@ -101,7 +106,8 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 
 ## Known issues
 
-- Server logs (`log`) are not rotated.
+- Server logs (`log`) get a new file per start but are never deleted; a server that keeps crashing leaves many files.
+  The admin UI shows only the file of the current or last start.
 - Pages of the published servers share the origin with `/.yard`, so their scripts can call `/.yard` with the
   logged-in user's session (the cookie is HttpOnly and limited to `/.yard`, but same-origin requests carry it).
 - Saving from the form editor rewrites yard.ini without its comments.

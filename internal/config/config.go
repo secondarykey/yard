@@ -3,8 +3,8 @@
 // The default location of the configuration file is %APPDATA%\yard\yard.ini (DefaultPath),
 // and the default log location is %TEMP%\yard (DefaultLogDir).
 //
-// Relative paths in the configuration file are resolved against the directory containing
-// the configuration file for command / dir, and against the log directory for log / access_log.
+// Relative paths in the configuration file (command / dir / cert / key) are resolved against
+// the directory containing the configuration file. Logs go to the log directory under fixed names.
 // When running as a service the working directory is System32 or /, so the current
 // directory at run time is never relied on.
 //
@@ -54,15 +54,15 @@ type Config struct {
 
 	// Dir is the directory containing the configuration file (absolute). Base for relative command / dir.
 	Dir string `toml:"-" json:"-"`
-	// LogDir is the log directory (absolute). Base for relative log / access_log.
+	// LogDir is the log directory (absolute). All log files are written here.
 	LogDir string `toml:"-" json:"-"`
 }
 
 // Yard holds yard's own listen and log settings.
 type Yard struct {
 	Addr      string `toml:"addr" json:"addr"`             // listen address; default ":8080"
-	AccessLog string `toml:"access_log" json:"access_log"` // access log destination, one file per day; disabled if empty
-	Log       string `toml:"log" json:"log"`               // yard's own log destination, one file per day; stderr if empty (the OS log when running as a service)
+	AccessLog bool   `toml:"access_log" json:"access_log"` // write the access log to access_YYYYMMDD.log in the log directory
+	Log       bool   `toml:"log" json:"log"`               // write yard's own log to yard_YYYYMMDD.log; otherwise stderr (the OS log when running as a service)
 
 	// Cert and Key are PEM files for HTTPS. With both set, addr serves HTTPS instead of HTTP.
 	// Relative paths are resolved against the configuration file's directory.
@@ -113,7 +113,7 @@ type Server struct {
 	Args    []string `toml:"args" json:"args"`       // arguments; {port}, {base}, etc. are substituted
 	Dir     string   `toml:"dir" json:"dir"`         // working directory; defaults to the configuration file's directory
 	Env     []string `toml:"env" json:"env"`         // extra environment variables "KEY=VALUE"; substituted
-	Log     string   `toml:"log" json:"log"`         // stdout / stderr destination; discarded if empty
+	Log     bool     `toml:"log" json:"log"`         // write stdout / stderr to {name}-{pid}.log in the log directory; discarded otherwise
 
 	StripPrefix  bool     `toml:"strip_prefix" json:"strip_prefix"`   // strip path before forwarding
 	LocalOnly    bool     `toml:"local_only" json:"local_only"`       // forward only requests from this machine (loopback)
@@ -121,6 +121,9 @@ type Server struct {
 	Restart      string   `toml:"restart" json:"restart"`             // on-failure (default) / always / never
 	StartTimeout Duration `toml:"start_timeout" json:"start_timeout"` // how long to wait for the port to open; default 30s
 	Disabled     bool     `toml:"disabled" json:"disabled"`           // do not start
+
+	// LogDir is Config.LogDir, set by Parse, so that the process knows where to write its log.
+	LogDir string `toml:"-" json:"-"`
 }
 
 // Duration accepts TOML strings such as "30s".
@@ -196,15 +199,21 @@ func Decode(data []byte) (*Config, error) {
 	return &c, nil
 }
 
-var legacySection = regexp.MustCompile(`(?m)^\s*(\[server\]|\[\[tool\]\])`)
+var (
+	legacySection = regexp.MustCompile(`(?m)^\s*(\[server\]|\[\[tool\]\])`)
+	legacyLog     = regexp.MustCompile(`(?m)^\s*(log|access_log)\s*=\s*["']`)
+)
 
-// withLegacyHint adds rewrite instructions if the configuration uses the old format ([server] and [[tool]]).
-// The old [server] conflicts in type with the new [[server]], and the TOML error alone does not reveal the cause.
+// withLegacyHint adds rewrite instructions if the configuration uses an old format: [server] and [[tool]],
+// or log / access_log as file names. Both conflict in type, and the TOML error alone does not reveal the cause.
 func withLegacyHint(err error, data []byte) error {
-	if !legacySection.Match(data) {
-		return err
+	if legacySection.Match(data) {
+		err = fmt.Errorf("%w\n(this is the old configuration format: rename [server] to [yard] and [[tool]] to [[server]])", err)
 	}
-	return fmt.Errorf("%w\n(this is the old configuration format: rename [server] to [yard] and [[tool]] to [[server]])", err)
+	if legacyLog.Match(data) {
+		err = fmt.Errorf("%w\n(log and access_log are now true / false; the file names are fixed)", err)
+	}
+	return err
 }
 
 func (c *Config) normalize() error {
@@ -216,8 +225,6 @@ func (c *Config) normalize() error {
 	if _, _, err := net.SplitHostPort(c.Yard.Addr); err != nil {
 		errs = append(errs, fmt.Errorf("yard.addr: %w", err))
 	}
-	c.Yard.AccessLog = c.LogPath(c.Yard.AccessLog)
-	c.Yard.Log = c.LogPath(c.Yard.Log)
 	if err := c.Yard.loadTLS(c); err != nil {
 		errs = append(errs, err)
 	}
@@ -276,7 +283,7 @@ func (c *Config) normalize() error {
 		} else {
 			t.Dir = c.Abs(t.Dir)
 		}
-		t.Log = c.LogPath(t.Log)
+		t.LogDir = c.LogDir
 
 		for _, e := range t.Env {
 			if k, _, ok := strings.Cut(e, "="); !ok || k == "" {
@@ -352,12 +359,22 @@ func (c *Config) Abs(p string) string {
 	return filepath.Join(c.Dir, p)
 }
 
-// LogPath makes p absolute relative to the log directory. Empty stays empty.
-func (c *Config) LogPath(p string) string {
-	if p == "" || filepath.IsAbs(p) {
-		return p
+// YardLog returns the name yard's own log is based on ("dir/yard.log", written as yard_YYYYMMDD.log),
+// or "" if it is off.
+func (c *Config) YardLog() string {
+	if !c.Yard.Log {
+		return ""
 	}
-	return filepath.Join(c.LogDir, p)
+	return filepath.Join(c.LogDir, "yard.log")
+}
+
+// AccessLog returns the name the access log is based on ("dir/access.log", written as access_YYYYMMDD.log),
+// or "" if it is off.
+func (c *Config) AccessLog() string {
+	if !c.Yard.AccessLog {
+		return ""
+	}
+	return filepath.Join(c.LogDir, "access.log")
 }
 
 // Server looks up a server's configuration by name.
@@ -454,15 +471,16 @@ func DefaultLogDir() string {
 
 // Template is the configuration file template written by install / init.
 const Template = `# yard configuration file (TOML)
-# Relative paths are resolved against the directory of this file for command / dir,
-# and against the log directory (default %TEMP%\yard) for log / access_log.
-# Only the logs specified here are written. access_log and yard's log switch files every day
-# (access.log → access_20261108.log); a server's log is a single file.
+# Relative paths for command / dir / cert / key are resolved against the directory of this file.
+# Logs that are turned on are written to the log directory (default %TEMP%\yard):
+#   [yard] log         yard_20261108.log    (one file per day)
+#   [yard] access_log  access_20261108.log  (one file per day)
+#   [[server]] log     {name}-{pid}.log     (one file per start)
 
 [yard]
 addr = ":8080"
-# access_log = "access.log"
-# log = "yard.log"
+# access_log = false
+# log = false
 # Serve HTTPS on addr (PEM files, relative to this file). redirect_addr redirects plain HTTP to it.
 # cert = "yard.crt"
 # key = "yard.key"
@@ -496,7 +514,7 @@ name = "yard"
 # args = ["-port", "{port}", "-base", "{base}"]
 # dir = "bin"
 # env = ["MEMO_DATA=data/memo"]
-# log = "memo.log"
+# log = false
 # strip_prefix = false
 # local_only = false
 # https = false

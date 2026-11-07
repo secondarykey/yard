@@ -217,11 +217,11 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
-	t := p.Config()
-	d := &logData{pageData: pageData{Page: "servers"}, Name: t.Name, File: t.Log}
-	if t.Log == "" {
-		d.Error = "log is not configured"
-	} else if text, truncated, err := tail(t.Log, logTailBytes); err != nil {
+	file := p.LogFile()
+	d := &logData{pageData: pageData{Page: "servers"}, Name: p.Config().Name, File: file}
+	if file == "" {
+		d.Error = "no log has been written"
+	} else if text, truncated, err := tail(file, logTailBytes); err != nil {
 		d.Error = err.Error()
 	} else {
 		d.Text, d.Truncated = text, truncated

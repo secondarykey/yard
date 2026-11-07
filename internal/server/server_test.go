@@ -72,7 +72,7 @@ func newTestServer(t *testing.T, servers string) (*Server, *httptest.Server, str
 	}
 	dir := t.TempDir()
 	src := strings.ReplaceAll(servers, "EXE", strings.ReplaceAll(exe, `\`, `\\`))
-	src = "[yard]\naccess_log = \"access.log\"\n" + src
+	src = "[yard]\naccess_log = true\n" + src
 	path := filepath.Join(dir, config.FileName)
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ path = "/echo"
 command = "EXE"
 args = ["-p", "{port}", "{base}"]
 env = ["YARD_TEST_HELPER=1"]
-log = "echo.log"
+log = true
 start_timeout = "10s"
 `
 
@@ -163,9 +163,16 @@ func TestProxy(t *testing.T) {
 		t.Errorf("/ = %d", code)
 	}
 
-	// Server output and access log
-	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
+	// Server output ({name}-{pid}.log) and access log
+	logName := filepath.Join(dir, fmt.Sprintf("echo-%d.log", st.PID))
+	if p.LogFile() != logName {
+		t.Errorf("log file = %q, want %q", p.LogFile(), logName)
+	}
+	if b, _ := os.ReadFile(logName); !strings.Contains(string(b), "helper up") || !strings.HasPrefix(string(b), "=== yard: echo starting port=") {
 		t.Errorf("server log = %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "echo-starting.log")); !os.IsNotExist(err) {
+		t.Errorf("temporary log name left behind: %v", err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
@@ -332,7 +339,7 @@ func TestCleanPathRedirect(t *testing.T) {
 }
 
 func TestLocalOnly(t *testing.T) {
-	s, ts, _ := newTestServer(t, strings.Replace(echoServer, `log = "echo.log"`, "local_only = true", 1))
+	s, ts, _ := newTestServer(t, strings.Replace(echoServer, "log = true", "local_only = true", 1))
 	h := s.Handler()
 
 	// From this machine it is forwarded as usual (httptest listens on loopback).
@@ -363,15 +370,16 @@ name = "echo"
 path = "/echo"
 command = "EXE"
 env = ["YARD_TEST_HELPER=1", "YARD_TEST_TLS=1"]
-log = "echo.log"
+log = true
 start_timeout = "10s"
 https = true
 `
-	_, ts, dir := newTestServer(t, tlsServer)
+	s, ts, _ := newTestServer(t, tlsServer)
 	code, body, _ := get(t, ts.URL+"/echo/a")
 	if code != 200 || !strings.Contains(body, "path=/echo/a ") ||
 		!strings.Contains(body, "host="+strings.TrimPrefix(ts.URL, "http://")) {
-		b, _ := os.ReadFile(filepath.Join(dir, "echo.log"))
+		p, _ := s.mgr.Get("echo")
+		b, _ := os.ReadFile(p.LogFile())
 		t.Fatalf("code = %d, body = %s, log = %s", code, body, b)
 	}
 

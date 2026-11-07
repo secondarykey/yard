@@ -9,10 +9,10 @@ as arguments. By default these are `%APPDATA%\yard\yard.ini` and `%TEMP%\yard` o
 | Item | Details |
 |---|---|
 | What is registered | Path of the executable + absolute `-config` / `-logdir` paths. **Re-register after moving the executable** |
-| Working directory | OS dependent (see below). yard resolves relative paths against the yard.ini or log directory, so it does not matter |
+| Working directory | OS dependent (see below). yard resolves relative paths against the yard.ini directory and writes logs to the log directory, so it does not matter |
 | `%APPDATA%` / `%TEMP%` | Under LocalSystem these become `C:\Windows\System32\config\systemprofile\...` and `C:\Windows\Temp`. yard uses the absolute paths resolved at install time and never reads them |
 | Privileges | Registering / removing a system service requires administrator / root |
-| Logs | Without `yard.log`, yard's own log goes to the OS log (see below) |
+| Logs | With `[yard] log` off, yard's own log goes to the OS log (see below) |
 | Stopping | Servers are stopped inside `Stop` (immediate termination on Windows, otherwise SIGTERM → SIGKILL after 5 seconds) |
 
 Changing `name` under `[service]` lets you register several yard instances on the same machine.
@@ -47,7 +47,7 @@ and only then unregisters it. If it cannot be stopped, it returns an error witho
 - Start type: automatic (`StartType` defaults to automatic).
 - Recovery options: yard sets `OnFailure = restart` and `OnFailureDelayDuration = 5s`.
   The SCM restarts yard if yard itself exits abnormally.
-- Logs: the Event Log (source name = service name) if `yard.log` is not set.
+- Logs: the Event Log (source name = service name) if `[yard] log` is off.
 - Stop timeout: the time before the SCM forcibly terminates a service is
   `HKLM\SYSTEM\CurrentControlSet\Control\WaitToKillServiceTimeout` (20 seconds by default).
 - Signals are not delivered. Stopping is done via control requests from the SCM.
@@ -73,7 +73,7 @@ procd → sysv). The kind used by `yard status` etc. can be found with `service.
   (waits 2 minutes before restarting), `StartLimitInterval=5` / `StartLimitBurst=10`.
 - Environment: `/etc/sysconfig/<name>` is read as an `EnvironmentFile` if it exists.
   **systemd's PATH is minimal**, so it is safest to write server commands as absolute paths.
-- Logs: syslog → journald (`journalctl -u <name>`) if `yard.log` is not set.
+- Logs: syslog → journald (`journalctl -u <name>`) if `[yard] log` is off.
 - Stopping: with the default `KillMode=control-group`, systemd sends SIGTERM to yard and the servers (same cgroup)
   at the same time. yard also stops the servers, but stopping them twice is harmless.
 
@@ -92,7 +92,7 @@ procd → sysv). The kind used by `yard status` etc. can be found with `service.
 - Run as: `[service] user` goes into `UserName`. Empty means root.
 - yard sets `KeepAlive = true` and `RunAtLoad = true` (launchd restarts it if it dies).
 - Working directory: `/` unless specified.
-- Logs: syslog (`log show --predicate 'process == "yard"'`) if `yard.log` is not set.
+- Logs: syslog (`log show --predicate 'process == "yard"'`) if `[yard] log` is off.
 - The executable may run into Gatekeeper / notarization issues. Locally built binaries are less likely to be affected.
 - Stopping: stopping via `launchctl` delivers SIGTERM. launchd also terminates the job's process group by default.
 

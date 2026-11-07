@@ -47,7 +47,7 @@ type Server struct {
 
 // New applies the configuration and starts the servers.
 func New(cfgPath string, cfg *config.Config, logger *slog.Logger) (*Server, error) {
-	access, err := openAccessLog(cfg.Yard.AccessLog)
+	access, err := openAccessLog(cfg.AccessLog())
 	if err != nil {
 		return nil, fmt.Errorf("access log: %w", err)
 	}
@@ -154,7 +154,7 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 
 	var access *accessLog
 	if cfg.Yard.AccessLog != old.Yard.AccessLog {
-		a, err := openAccessLog(cfg.Yard.AccessLog)
+		a, err := openAccessLog(cfg.AccessLog())
 		if err != nil {
 			return nil, fmt.Errorf("access log: %w", err)
 		}

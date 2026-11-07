@@ -53,11 +53,11 @@
       <h2>yard</h2>
       <div class="grid">
         <label title="yard.addr"><span>Listen address</span><input data-k="yard.addr" class="mono" placeholder=":8080"></label>
-        <label title="yard.access_log"><span>Access log</span><input data-k="yard.access_log" class="mono"></label>
-        <label title="yard.log"><span>yard log</span><input data-k="yard.log" class="mono"></label>
         <label title="yard.cert"><span>TLS certificate</span><input data-k="yard.cert" class="mono"></label>
         <label title="yard.key"><span>TLS key</span><input data-k="yard.key" class="mono"></label>
         <label title="yard.redirect_addr"><span>HTTP redirect address</span><input data-k="yard.redirect_addr" class="mono" placeholder=":80"></label>
+        <label class="check" title="yard.log: yard_YYYYMMDD.log"><input type="checkbox" data-k="yard.log"><span>yard log</span></label>
+        <label class="check" title="yard.access_log: access_YYYYMMDD.log"><input type="checkbox" data-k="yard.access_log"><span>Access log</span></label>
       </div>
     </section>
 
@@ -116,11 +116,11 @@
         <label class="wide" title="args"><span>Arguments</span><textarea data-k="args" data-list rows="3" class="mono"></textarea></label>
         <label class="wide" title="dir"><span>Working directory</span><input data-k="dir" class="mono" placeholder="{{.Dir}}"></label>
         <label class="wide" title="env"><span>Environment</span><textarea data-k="env" data-list rows="2" class="mono" placeholder="KEY=VALUE"></textarea></label>
-        <label class="wide" title="log"><span>Log</span><input data-k="log" class="mono"></label>
         <label title="restart"><span>Restart</span>
           <select data-k="restart"><option value="">on-failure</option><option>always</option><option>never</option></select>
         </label>
         <label title="start_timeout"><span>Start timeout</span><input data-k="start_timeout" class="mono" placeholder="30s"></label>
+        <label class="check" title="log: {name}-{pid}.log"><input type="checkbox" data-k="log"><span>Log</span></label>
         <label class="check" title="strip_prefix"><input type="checkbox" data-k="strip_prefix"><span>Strip prefix</span></label>
         <label class="check" title="local_only"><input type="checkbox" data-k="local_only"><span>Local only</span></label>
         <label class="check" title="https"><input type="checkbox" data-k="https"><span>HTTPS</span></label>

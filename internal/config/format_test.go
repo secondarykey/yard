@@ -9,7 +9,7 @@ import (
 
 func TestFormatRoundTrip(t *testing.T) {
 	in := &Config{
-		Yard:    Yard{Addr: ":9090", AccessLog: "access.log"},
+		Yard:    Yard{Addr: ":9090", AccessLog: true, Log: true},
 		Admin:   Admin{Allow: []string{"127.0.0.1", "10.0.0.0/8"}},
 		Service: Service{Name: "yard", Description: `say "hi"`, UserService: true},
 		Servers: []Server{
@@ -19,6 +19,7 @@ func TestFormatRoundTrip(t *testing.T) {
 				Command:      `C:\tools\memo.exe`,
 				Args:         []string{"-port", "{port}", "it's", "tab\there", "日本語"},
 				Env:          []string{`DATA=D:\data`, "LINE=a\nb"},
+				Log:          true,
 				StripPrefix:  true,
 				LocalOnly:    true,
 				HTTPS:        true,
@@ -63,6 +64,13 @@ func TestFormatTemplate(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c, again) {
 		t.Errorf("template round trip differs:\n%#v\n%#v", c, again)
+	}
+}
+
+func TestLegacyLogHint(t *testing.T) {
+	_, err := Decode([]byte("[yard]\nlog = \"yard.log\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "now true / false") {
+		t.Errorf("err = %v", err)
 	}
 }
 

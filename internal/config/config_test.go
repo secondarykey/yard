@@ -15,7 +15,7 @@ name = "memo"
 path = "/memo/"
 command = "bin/memo"
 args = ["-port", "{port}"]
-log = "logs/memo.log"
+log = true
 `), dir, logDir)
 	if err != nil {
 		t.Fatal(err)
@@ -33,8 +33,11 @@ log = "logs/memo.log"
 	if sv.Dir != dir {
 		t.Errorf("dir = %q", sv.Dir)
 	}
-	if sv.Log != filepath.Join(logDir, "logs/memo.log") {
-		t.Errorf("log = %q", sv.Log)
+	if !sv.Log || sv.LogDir != logDir {
+		t.Errorf("log = %v, logdir = %q", sv.Log, sv.LogDir)
+	}
+	if c.YardLog() != "" || c.AccessLog() != "" {
+		t.Errorf("yard logs should be off by default: %q, %q", c.YardLog(), c.AccessLog())
 	}
 	if sv.Restart != RestartOnFailure || sv.StartTimeout.Duration != 30*time.Second {
 		t.Errorf("restart = %q, timeout = %s", sv.Restart, sv.StartTimeout)

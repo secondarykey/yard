@@ -14,8 +14,8 @@ func Format(c *Config) []byte {
 	var w formatter
 	w.table("[yard]", false,
 		str("addr", c.Yard.Addr),
-		str("access_log", c.Yard.AccessLog),
-		str("log", c.Yard.Log),
+		flag("access_log", c.Yard.AccessLog),
+		flag("log", c.Yard.Log),
 		str("cert", c.Yard.Cert),
 		str("key", c.Yard.Key),
 		str("redirect_addr", c.Yard.RedirectAddr))
@@ -40,7 +40,7 @@ func Format(c *Config) []byte {
 			list("args", s.Args),
 			str("dir", s.Dir),
 			list("env", s.Env),
-			str("log", s.Log),
+			flag("log", s.Log),
 			flag("strip_prefix", s.StripPrefix),
 			flag("local_only", s.LocalOnly),
 			flag("https", s.HTTPS),

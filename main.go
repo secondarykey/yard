@@ -42,7 +42,7 @@ func main() {
 
 func run() error {
 	cfgFlag := flag.String("config", config.DefaultPath(), "path to yard.ini")
-	logFlag := flag.String("logdir", config.DefaultLogDir(), "base directory for relative log paths")
+	logFlag := flag.String("logdir", config.DefaultLogDir(), "directory for log files")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -197,14 +197,14 @@ func writeTemplate(path string) error {
 
 // newLogger decides where yard's own log goes.
 //
-//   - If yard.log is set, to that file, one per day (and also to stderr when in the foreground).
+//   - If yard.log is on, to yard_YYYYMMDD.log in the log directory (and also to stderr when in the foreground).
 //   - Otherwise to stderr in the foreground, or to the OS log when running as a service
 //     (the Event Log on Windows, syslog/journald on Linux).
 func newLogger(svc service.Service, cfg *config.Config) (*slog.Logger, func(), error) {
 	var hs []slog.Handler
 	closer := func() {}
-	if cfg.Yard.Log != "" {
-		w, err := logfile.Daily(cfg.Yard.Log, true)
+	if name := cfg.YardLog(); name != "" {
+		w, err := logfile.Daily(name, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("log: %w", err)
 		}

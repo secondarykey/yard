@@ -72,7 +72,7 @@ func TestAuth(t *testing.T) {
 	}
 
 	// Setting a password from the form stores a hash and logs in whoever set it.
-	res := putJSON("", `{"yard":{"access_log":"access.log"},"password":"s3cret"}`)
+	res := putJSON("", `{"yard":{"access_log":true},"password":"s3cret"}`)
 	first := sessionOf(res)
 	if first == "" {
 		t.Fatal("no session after setting the password")
@@ -131,7 +131,7 @@ func TestAuth(t *testing.T) {
 	}
 
 	// Saving the form without "password" keeps it
-	putJSON(second, `{"yard":{"access_log":"access.log"},"server":[]}`)
+	putJSON(second, `{"yard":{"access_log":true},"server":[]}`)
 	if s.Config().Admin.PasswordHash != hash {
 		t.Error("password changed by a save that did not touch it")
 	}

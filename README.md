@@ -50,24 +50,22 @@ on macOS, `~/Library/Application Support/yard/yard.ini` and `$TMPDIR/yard`.
 
 `install` registers the configuration file and log locations of the user who ran it as absolute paths in the service.
 Even when running as a service (LocalSystem or root), `%APPDATA%` / `%TEMP%` do not switch to the service account's locations.
-Only the logs specified in the configuration file are written.
+Only the logs turned on in the configuration file are written, all of them to the log directory (see [Log files](#log-files)).
 
 See [_docs/service.md](_docs/service.md) for service behavior on each OS.
 
 ## Configuration file (yard.ini)
 
-TOML format. Relative paths are resolved as follows:
-
-- `command` / `dir` / `cert` / `key`: the directory containing yard.ini
-- `log` / `access_log`: the log directory (default `%TEMP%\yard`)
+TOML format. Relative paths (`command` / `dir` / `cert` / `key`) are resolved against the directory containing yard.ini.
+Logs only need turning on; their names are fixed and they go to the log directory (default `%TEMP%\yard`).
 
 Unknown keys are errors (so that typos are caught).
 
 ```toml
 [yard]
 addr = ":8080"                    # listen address
-access_log = "access.log"         # access log, one file per day (access_20261108.log); omit to disable
-log = "yard.log"                  # yard's own log, one file per day (yard_20261108.log); omit for stderr (the OS log when running as a service)
+access_log = true                 # access log, one file per day (access_20261108.log)
+log = true                        # yard's own log, one file per day (yard_20261108.log); if false, stderr (the OS log when running as a service)
 # cert = "yard.crt"               # with key: serve HTTPS on addr (PEM files)
 # key = "yard.key"
 # redirect_addr = ":80"           # with HTTPS: plain HTTP here is redirected to https
@@ -90,7 +88,7 @@ command = "bin/memo.exe"          # executable (required); looked up in PATH if 
 args = ["-port", "{port}", "-base", "{base}"]
 dir = "bin"                       # working directory; defaults to the yard.ini directory
 env = ["MEMO_DATA=data"]          # extra environment variables
-log = "memo.log"                  # server stdout / stderr, to this one file (not split by day); discarded if omitted
+log = true                        # server stdout / stderr, one file per start ({name}-{pid}.log, e.g. memo-1234.log); discarded if false
 strip_prefix = false              # if true, strip path before forwarding
 local_only = false                # if true, only requests from this machine are forwarded (others get 403)
 https = false                     # if true, the server speaks HTTPS (its certificate is not verified)
@@ -144,7 +142,7 @@ A new port is picked on each start. Child processes created by the server are st
 |---|---|
 | `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
 | `GET /.yard/config` | Edit the configuration as a form (`?view=text` for the raw file). Validated and applied on save. Saving from the form rewrites yard.ini without its comments |
-| `GET /.yard/servers/{name}/log` | Server output (last 256KB). `?raw` for plain text |
+| `GET /.yard/servers/{name}/log` | Server output of the current or last start (last 256KB). `?raw` for plain text |
 | `GET /.yard/matrix` | Digital rain (just for fun; also the login page) |
 | `POST /.yard/login` | Log in with the form value `password` (204, or 401 for a wrong password) |
 | `POST /.yard/logout` | Log out |
@@ -208,8 +206,15 @@ the connection's address only, so behind a proxy on the same machine every clien
 
 ## Log files
 
-yard's own log (`[yard] log`) and the access log (`access_log`) switch files every day: the date goes before
-the extension, which becomes `.log` (`access.log` → `access_20261108.log`). Old files are kept; deleting them is up to you.
+Each log is turned on with `true` and has a fixed name in the log directory:
+
+| Setting | File | |
+|---|---|---|
+| `[yard] log` | `yard_20261108.log` | one file per day |
+| `[yard] access_log` | `access_20261108.log` | one file per day |
+| `[[server]] log` | `{name}-{pid}.log` (`memo-1234.log`) | one file per start |
+
+Old files are kept; deleting them is up to you.
 When yard's own log reopens a file that already exists (yard restarted the same day), a separator line is written to it.
 
 yard's own log is written with `log/slog`:
@@ -218,7 +223,8 @@ yard's own log is written with `log/slog`:
 2026-11-08T05:42:48+09:00 [INFO  ] started server=memo pid=1234 port=50123
 ```
 
-Server output (`[[server]] log`) goes to the configured file as is.
+Server output (`[[server]] log`) is written as is, after one line from yard with the port and start time.
+Every start (including restarts) gets a new file, since the pid is part of the name.
 
 ## Access log format
 

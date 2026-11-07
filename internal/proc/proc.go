@@ -13,7 +13,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -75,6 +74,7 @@ type Proc struct {
 	restarts  int
 	exitCode  *int
 	lastErr   string
+	logFile   string        // output file of the current or last start; kept after it stops
 	ready     chan struct{} // open only while starting; managed by setStateLocked
 	cancel    context.CancelFunc
 	done      chan struct{} // closed when the supervising goroutine finishes
@@ -103,13 +103,21 @@ func (p *Proc) Status() Status {
 		Restarts:  p.restarts,
 		ExitCode:  p.exitCode,
 		Error:     p.lastErr,
-		Log:       p.conf.Log != "",
+		Log:       p.logFile != "",
 		LocalOnly: p.conf.LocalOnly,
 	}
 	if p.state == StateStarting || p.state == StateRunning {
 		s.PID, s.Port, s.StartedAt = p.pid, p.port, p.startedAt
 	}
 	return s
+}
+
+// LogFile returns the output file of the current or last start ({name}-{pid}.log),
+// or "" if nothing has been written yet.
+func (p *Proc) LogFile() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.logFile
 }
 
 // Target returns the forwarding target "127.0.0.1:port", or "" if not running.
@@ -271,6 +279,9 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	}
 	if out != nil {
 		defer out.Close()
+		// Written before the start so that it comes before the server's own output. The pid goes into the name.
+		fmt.Fprintf(out, "=== yard: %s starting port=%d at %s ===\n",
+			p.conf.Name, port, time.Now().Format(time.RFC3339))
 	}
 
 	p.mu.Lock()
@@ -279,19 +290,27 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 
 	tree, err := startTree(cmd)
 	if err != nil {
+		if out != nil {
+			out.Close()
+			os.Remove(out.Name())
+		}
 		return nil, fmt.Errorf("start: %w", err)
 	}
 	defer tree.Close()
 
-	p.mu.Lock()
-	p.pid = cmd.Process.Pid
-	p.startedAt = time.Now()
-	p.mu.Unlock()
-	p.logger.Info("started", "pid", cmd.Process.Pid, "port", port)
+	pid := cmd.Process.Pid
+	logFile := ""
 	if out != nil {
-		fmt.Fprintf(out, "\n=== yard: %s started pid=%d port=%d at %s ===\n",
-			p.conf.Name, cmd.Process.Pid, port, time.Now().Format(time.RFC3339))
+		logFile = p.nameLog(out.Name(), pid)
 	}
+	p.mu.Lock()
+	p.pid = pid
+	p.startedAt = time.Now()
+	if logFile != "" {
+		p.logFile = logFile
+	}
+	p.mu.Unlock()
+	p.logger.Info("started", "pid", pid, "port", port)
 
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
@@ -365,8 +384,9 @@ func exitStatus(cmd *exec.Cmd, err error) (*int, error) {
 }
 
 // command builds an exec.Cmd with substituted arguments and environment.
-// If it opened an output file, that is returned too (the caller closes it).
-func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
+// If it opened an output file, that is returned too (the caller closes it). The file has a
+// temporary name until the process has a pid (nameLog).
+func (p *Proc) command(port int) (*exec.Cmd, *os.File, error) {
 	t := p.conf
 	r := Replacer(t, port)
 
@@ -391,9 +411,9 @@ func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
 	}
 	cmd.Env = env
 
-	var out io.WriteCloser
-	if t.Log != "" {
-		f, err := OpenLog(t.Log)
+	var out *os.File
+	if t.Log {
+		f, err := openLog(filepath.Join(t.LogDir, t.Name+"-starting.log"))
 		if err != nil {
 			return nil, nil, fmt.Errorf("open log: %w", err)
 		}
@@ -402,6 +422,17 @@ func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
 	}
 	// If Stdout/Stderr are nil they are connected to os.DevNull (output is discarded).
 	return cmd, out, nil
+}
+
+// nameLog renames the output file to {name}-{pid}.log now that the process has a pid, and returns the
+// name it ends up with. The server already writes to it; openLog lets it be renamed while open.
+func (p *Proc) nameLog(tmp string, pid int) string {
+	name := filepath.Join(filepath.Dir(tmp), fmt.Sprintf("%s-%d.log", p.conf.Name, pid))
+	if err := os.Rename(tmp, name); err != nil {
+		p.logger.Warn("rename log", "err", err)
+		return tmp
+	}
+	return name
 }
 
 // Replacer returns the substitution replacer for args / env.
@@ -422,14 +453,6 @@ func base(p string) string {
 		return p
 	}
 	return p + "/"
-}
-
-// OpenLog opens a log file for appending, creating the directory if needed.
-func OpenLog(name string) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		return nil, err
-	}
-	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }
 
 // FreePort returns one free loopback port.
