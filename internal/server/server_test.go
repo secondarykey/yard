@@ -61,7 +61,7 @@ func newTestServer(t *testing.T, tools string) (*Server, *httptest.Server, strin
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(path)
+	cfg, err := config.Load(path, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

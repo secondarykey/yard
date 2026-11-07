@@ -89,7 +89,7 @@ func (s *Server) Close() {
 // Reload は設定ファイルを読み直して反映する。
 // 戻り値の notices は、反映できなかった（再起動が必要な）項目の説明。
 func (s *Server) Reload() (notices []string, err error) {
-	cfg, err := config.Load(s.path)
+	cfg, err := config.Load(s.path, s.Config().LogDir)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *Server) SaveConfig(data []byte) (notices []string, err error) {
 	defer s.saveMu.Unlock()
 
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
-	cfg, err := config.Parse(data, filepath.Dir(s.path))
+	cfg, err := config.Parse(data, filepath.Dir(s.path), s.Config().LogDir)
 	if err != nil {
 		return nil, err
 	}

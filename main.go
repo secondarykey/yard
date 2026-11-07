@@ -39,15 +39,16 @@ func main() {
 }
 
 func run() error {
-	cfgFlag := flag.String("config", "", "path to yard.ini (default: ./yard.ini, or next to the executable)")
+	cfgFlag := flag.String("config", config.DefaultPath(), "path to yard.ini")
+	logFlag := flag.String("logdir", config.DefaultLogDir(), "base directory for relative log paths")
 	flag.Usage = usage
 	flag.Parse()
 
-	cfgPath := *cfgFlag
-	if cfgPath == "" {
-		cfgPath = config.DefaultPath()
+	cfgPath, err := filepath.Abs(*cfgFlag)
+	if err != nil {
+		return err
 	}
-	cfgPath, err := filepath.Abs(cfgPath)
+	logDir, err := filepath.Abs(*logFlag)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func run() error {
 		return writeTemplate(cfgPath)
 	}
 
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(cfgPath, logDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("%s not found (run `yard init` to create one)", cfgPath)
@@ -72,8 +73,9 @@ func run() error {
 		Description: cfg.Service.Description,
 		UserName:    cfg.Service.User,
 		// サービスの作業ディレクトリは System32 や / になるため、
-		// 設定ファイルは絶対パスで渡しておく。
-		Arguments: []string{"-config", cfgPath},
+		// 設定ファイルは絶対パスで渡しておく。ログの場所も install した利用者の
+		// %TEMP%\yard に固定する（LocalSystem の %TEMP% はシステム側になるため）。
+		Arguments: []string{"-config", cfgPath, "-logdir", logDir},
 		Option: service.KeyValue{
 			// systemd / launchd などで異常終了時に再起動させる。
 			"Restart":     "on-failure",
@@ -91,7 +93,7 @@ func run() error {
 	}
 
 	if cmd != "" {
-		return control(svc, cmd, cfgPath)
+		return control(svc, cmd, cfgPath, logDir)
 	}
 
 	logger, closeLog, err := newLogger(svc, cfg)
@@ -104,7 +106,7 @@ func run() error {
 }
 
 // control は install/start/stop などのサブコマンドを処理する。
-func control(svc service.Service, cmd, cfgPath string) error {
+func control(svc service.Service, cmd, cfgPath, logDir string) error {
 	switch cmd {
 	case "status":
 		st, err := svc.Status()
@@ -117,7 +119,7 @@ func control(svc service.Service, cmd, cfgPath string) error {
 		if err := svc.Install(); err != nil {
 			return err
 		}
-		fmt.Printf("installed (config: %s)\n", cfgPath)
+		fmt.Printf("installed (config: %s, logdir: %s)\n", cfgPath, logDir)
 		return nil
 	case "uninstall":
 		if err := stopForUninstall(svc); err != nil {
@@ -178,6 +180,9 @@ func statusName(s service.Status) string {
 func writeTemplate(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("%s already exists", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
 	if err := os.WriteFile(path, []byte(config.Template), 0o644); err != nil {
 		return err
@@ -254,7 +259,7 @@ func (p *program) Start(service.Service) error {
 		// 本文の読み書きには期限を設けない。ツール側の長時間のレスポンス
 		// （SSE、WebSocket、大きなダウンロード）を途中で切らないため。
 	}
-	p.logger.Printf("listening on %s (config: %s, %d tools)", ln.Addr(), p.cfgPath, len(p.cfg.Tools))
+	p.logger.Printf("listening on %s (config: %s, logdir: %s, %d tools)", ln.Addr(), p.cfgPath, p.cfg.LogDir, len(p.cfg.Tools))
 	go func() {
 		if err := p.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.logger.Printf("serve: %v", err)

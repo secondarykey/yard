@@ -1,7 +1,10 @@
 // Package config は yard.ini（TOML）を読み、検証する。
 //
-// 設定ファイル中の相対パス（command / dir / log / access_log）は、
-// すべて設定ファイルのあるディレクトリを基準に解決する。サービスとして
+// 設定ファイルの既定の場所は %APPDATA%\yard\yard.ini（DefaultPath）、
+// ログの既定の場所は %TEMP%\yard（DefaultLogDir）。
+//
+// 設定ファイル中の相対パスは、command / dir は設定ファイルのあるディレクトリ、
+// log / access_log はログのディレクトリを基準に解決する。サービスとして
 // 動くときの作業ディレクトリは System32 や / になるため、実行時の
 // カレントディレクトリには頼らない。
 //
@@ -47,8 +50,10 @@ type Config struct {
 	Service Service `toml:"service"`
 	Tools   []Tool  `toml:"tool"`
 
-	// Dir は設定ファイルのあるディレクトリ（絶対パス）。相対パスの基準。
+	// Dir は設定ファイルのあるディレクトリ（絶対パス）。command / dir の相対パスの基準。
 	Dir string `toml:"-"`
+	// LogDir はログのディレクトリ（絶対パス）。log / access_log の相対パスの基準。
+	LogDir string `toml:"-"`
 }
 
 // Server は待ち受けとログの設定。
@@ -111,7 +116,8 @@ func (d *Duration) UnmarshalText(b []byte) error {
 func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
 
 // Load は path の設定ファイルを読み、既定値を補って検証する。
-func Load(path string) (*Config, error) {
+// logDir はログの相対パスの基準。
+func Load(path, logDir string) (*Config, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -120,11 +126,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Parse(data, filepath.Dir(abs))
+	return Parse(data, filepath.Dir(abs), logDir)
 }
 
-// Parse は設定の本文を解釈する。dir は相対パスの基準。
-func Parse(data []byte, dir string) (*Config, error) {
+// Parse は設定の本文を解釈する。dir は command / dir の、logDir はログの相対パスの基準。
+func Parse(data []byte, dir, logDir string) (*Config, error) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 	var c Config
@@ -140,6 +146,7 @@ func Parse(data []byte, dir string) (*Config, error) {
 		return nil, fmt.Errorf("unknown keys: %s", strings.Join(keys, ", "))
 	}
 	c.Dir = dir
+	c.LogDir = logDir
 	if err := c.normalize(); err != nil {
 		return nil, err
 	}
@@ -155,8 +162,8 @@ func (c *Config) normalize() error {
 	if _, _, err := net.SplitHostPort(c.Server.Addr); err != nil {
 		errs = append(errs, fmt.Errorf("server.addr: %w", err))
 	}
-	c.Server.AccessLog = c.Abs(c.Server.AccessLog)
-	c.Server.Log = c.Abs(c.Server.Log)
+	c.Server.AccessLog = c.LogPath(c.Server.AccessLog)
+	c.Server.Log = c.LogPath(c.Server.Log)
 
 	if err := c.Admin.parse(); err != nil {
 		errs = append(errs, err)
@@ -212,7 +219,7 @@ func (c *Config) normalize() error {
 		} else {
 			t.Dir = c.Abs(t.Dir)
 		}
-		t.Log = c.Abs(t.Log)
+		t.Log = c.LogPath(t.Log)
 
 		for _, e := range t.Env {
 			if k, _, ok := strings.Cut(e, "="); !ok || k == "" {
@@ -258,6 +265,14 @@ func (c *Config) Abs(p string) string {
 		return p
 	}
 	return filepath.Join(c.Dir, p)
+}
+
+// LogPath はログのディレクトリを基準に p を絶対パスにする。空ならそのまま。
+func (c *Config) LogPath(p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(c.LogDir, p)
 }
 
 // Tool は名前でツール設定を探す。
@@ -318,29 +333,31 @@ func (a *Admin) Allowed(remoteAddr string) bool {
 	return false
 }
 
-// DefaultPath は設定ファイルの既定の場所を返す。
-// カレントディレクトリに yard.ini があればそれを、無ければ実行ファイルの隣を使う。
+// DefaultPath は設定ファイルの既定の場所 %APPDATA%\yard\yard.ini を返す。
+// Linux は ~/.config/yard/yard.ini、macOS は ~/Library/Application Support/yard/yard.ini。
 func DefaultPath() string {
-	if _, err := os.Stat(FileName); err == nil {
-		if abs, err := filepath.Abs(FileName); err == nil {
-			return abs
-		}
-	}
-	exe, err := os.Executable()
+	dir, err := os.UserConfigDir()
 	if err != nil {
 		return FileName
 	}
-	return filepath.Join(filepath.Dir(exe), FileName)
+	return filepath.Join(dir, "yard", FileName)
+}
+
+// DefaultLogDir はログの既定の場所 %TEMP%\yard を返す。
+func DefaultLogDir() string {
+	return filepath.Join(os.TempDir(), "yard")
 }
 
 // Template は install / init で書き出す設定ファイルの雛形。
 const Template = `# yard の設定ファイル（TOML）
-# 相対パスはこのファイルのあるディレクトリを基準に解決される。
+# 相対パスは、command / dir はこのファイルのあるディレクトリ、
+# log / access_log はログのディレクトリ（既定 %TEMP%\yard）を基準に解決される。
+# ログは書いたものだけが出力される。
 
 [server]
 addr = ":8080"
-# access_log = "logs/access.log"
-# log = "logs/yard.log"
+# access_log = "access.log"
+# log = "yard.log"
 
 [admin]
 # /.yard を操作できる接続元（IP / CIDR / "*"）。既定はループバックのみ。
@@ -368,7 +385,7 @@ name = "yard"
 # args = ["-port", "{port}", "-base", "{base}"]
 # dir = "tools"
 # env = ["MEMO_DATA=data/memo"]
-# log = "logs/memo.log"
+# log = "memo.log"
 # strip_prefix = false
 # restart = "on-failure"
 # start_timeout = "30s"

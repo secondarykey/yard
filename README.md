@@ -36,22 +36,38 @@ yard install
 yard start
 ```
 
-`uninstall` / `stop` / `restart` / `status` もある。`uninstall` は動いているサービスを止めてから登録を外す。設定ファイルは `-config` で指定でき、
-省略時はカレントディレクトリの `yard.ini`、無ければ実行ファイルと同じ場所の `yard.ini` を使う。
-`install` は設定ファイルの絶対パスをサービスに登録する。
+`uninstall` / `stop` / `restart` / `status` もある。`uninstall` は動いているサービスを止めてから登録を外す。
+
+### ファイルの場所
+
+| | 既定の場所 | 変えるとき |
+|---|---|---|
+| 設定ファイル | `%APPDATA%\yard\yard.ini` | `-config <パス>` |
+| ログ | `%TEMP%\yard\` | `-logdir <パス>` |
+
+Linux は `~/.config/yard/yard.ini` と `$TMPDIR/yard`（無ければ `/tmp/yard`）、
+macOS は `~/Library/Application Support/yard/yard.ini` と `$TMPDIR/yard`。
+
+`install` は、実行した利用者の設定ファイルとログの場所を絶対パスでサービスに登録する。
+サービス（LocalSystem や root）として動いても、`%APPDATA%` / `%TEMP%` がサービス側の場所に変わらない。
+ログは設定ファイルに書いたものだけが出力される。
 
 OS ごとのサービスの挙動は [_docs/service.md](_docs/service.md) を参照。
 
 ## 設定ファイル（yard.ini）
 
-TOML 形式。**相対パスはすべて yard.ini のあるディレクトリが基準**。
+TOML 形式。相対パスの基準は次のとおり。
+
+- `command` / `dir`: yard.ini のあるディレクトリ
+- `log` / `access_log`: ログのディレクトリ（既定 `%TEMP%\yard`）
+
 未知のキーはエラーになる（綴り間違いに気づけるように）。
 
 ```toml
 [server]
 addr = ":8080"                    # 待ち受けアドレス
-access_log = "logs/access.log"    # アクセスログ。省略で出力しない
-log = "logs/yard.log"             # yard 自身のログ。省略で標準エラー（サービス時は OS のログ）
+access_log = "access.log"         # アクセスログ。省略で出力しない
+log = "yard.log"                  # yard 自身のログ。省略で標準エラー（サービス時は OS のログ）
 
 [admin]
 allow = ["127.0.0.1", "::1", "192.168.10.0/24"]   # /.yard を操作できる接続元。"*" で全許可
@@ -70,7 +86,7 @@ command = "tools/memo.exe"        # 実行ファイル（必須）。区切り�
 args = ["-port", "{port}", "-base", "{base}"]
 dir = "tools"                     # 作業ディレクトリ。省略で yard.ini の場所
 env = ["MEMO_DATA=data"]          # 追加の環境変数
-log = "logs/memo.log"             # ツールの標準出力・標準エラー。省略で捨てる
+log = "memo.log"                  # ツールの標準出力・標準エラー。省略で捨てる
 strip_prefix = false              # true なら path を取り除いて転送する
 restart = "on-failure"            # on-failure / always / never
 start_timeout = "30s"             # ポートが開くまで待つ時間

@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseDefaults(t *testing.T) {
-	dir := t.TempDir()
+	dir, logDir := t.TempDir(), t.TempDir()
 	c, err := Parse([]byte("\xef\xbb\xbf"+`
 [[tool]]
 name = "memo"
@@ -16,7 +16,7 @@ path = "/memo/"
 command = "bin/memo"
 args = ["-port", "{port}"]
 log = "logs/memo.log"
-`), dir)
+`), dir, logDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ log = "logs/memo.log"
 	if tool.Dir != dir {
 		t.Errorf("dir = %q", tool.Dir)
 	}
-	if tool.Log != filepath.Join(dir, "logs/memo.log") {
+	if tool.Log != filepath.Join(logDir, "logs/memo.log") {
 		t.Errorf("log = %q", tool.Log)
 	}
 	if tool.Restart != RestartOnFailure || tool.StartTimeout.Duration != 30*time.Second {
@@ -51,7 +51,7 @@ name = "a"
 path = "/a"
 command = "python"
 start_timeout = "5s"
-`), t.TempDir())
+`), t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ restart = "sometimes"`,
 allow = ["localhost"]`,
 	}
 	for want, src := range cases {
-		_, err := Parse([]byte(src), t.TempDir())
+		_, err := Parse([]byte(src), t.TempDir(), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err = %v", want, err)
 		}
@@ -144,7 +144,7 @@ func TestAdminAllowed(t *testing.T) {
 }
 
 func TestTemplateParses(t *testing.T) {
-	if _, err := Parse([]byte(Template), t.TempDir()); err != nil {
+	if _, err := Parse([]byte(Template), t.TempDir(), t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 }

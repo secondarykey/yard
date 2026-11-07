@@ -27,9 +27,13 @@ _cmd/hello              動作確認用のツール
 
 ## 壊しやすい決まり
 
-- **相対パスは yard.ini のディレクトリ基準。** サービスの作業ディレクトリは System32 や `/` になる。
-  `config.Abs` を通さずにパスを使わない。`command` は区切り文字を含むときだけパスとして解決し、
-  含まなければ PATH 検索に任せる。
+- **相対パスの基準は2つ。** `command` / `dir` は yard.ini のディレクトリ（`config.Abs`）、
+  `log` / `access_log` はログのディレクトリ（`config.LogPath`）。サービスの作業ディレクトリは
+  System32 や `/` になるので、どちらかを通さずにパスを使わない。`command` は区切り文字を含むときだけ
+  パスとして解決し、含まなければ PATH 検索に任せる。
+- **既定の場所は `%APPDATA%\yard\yard.ini` と `%TEMP%\yard`。** `install` は両方を絶対パス
+  （`-config` / `-logdir`）でサービスに登録する。LocalSystem で動くと `%APPDATA%` / `%TEMP%` が
+  システム側に変わるため、実行時に解決し直してはいけない。
 - **`/.yard` の接続元判定は `RemoteAddr` のみ。** `X-Forwarded-For` などを見ると詐称で抜けられる。
   設定の書き換えは任意のプログラムの実行と同義なので、既定はループバックのみ。
 - **`/.yard` の書き込み系は `http.CrossOriginProtection` の内側に置く。** 外すと CSRF で設定を書き換えられる。

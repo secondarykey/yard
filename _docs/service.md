@@ -1,14 +1,16 @@
 # サービス化（kardianos/service）の OS ごとの挙動
 
 `github.com/kardianos/service` v1.3.0 のソースを読んで確認した内容。
-yard は `yard install` で登録し、登録時に `-config <yard.ini の絶対パス>` を引数として埋め込む。
+yard は `yard install` で登録し、登録時に `-config <yard.ini の絶対パス> -logdir <ログの絶対パス>`
+を引数として埋め込む。既定ではそれぞれ、install を実行した利用者の `%APPDATA%\yard\yard.ini` と `%TEMP%\yard`。
 
 ## 共通
 
 | 項目 | 内容 |
 |---|---|
-| 登録内容 | 実行ファイルのパス + `-config <絶対パス>`。**実行ファイルを移動したら再登録が必要** |
-| 作業ディレクトリ | OS 依存（下記）。yard は相対パスをすべて yard.ini の場所基準で解決するので影響しない |
+| 登録内容 | 実行ファイルのパス + `-config` / `-logdir` の絶対パス。**実行ファイルを移動したら再登録が必要** |
+| 作業ディレクトリ | OS 依存（下記）。yard は相対パスを yard.ini の場所かログの場所を基準に解決するので影響しない |
+| `%APPDATA%` / `%TEMP%` | LocalSystem では `C:\Windows\System32\config\systemprofile\...` や `C:\Windows\Temp` になる。install 時に解決した絶対パスを使うので、yard はこれらを参照しない |
 | 権限 | システムサービスの登録・削除は管理者 / root が必要 |
 | ログ | `server.log` が無いとき、yard 自身のログは OS のログへ（下記） |
 | 停止 | `Stop` の中でツールを止める（Windows は即時終了、他は SIGTERM → 5 秒後 SIGKILL） |
