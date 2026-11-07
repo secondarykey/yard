@@ -89,6 +89,7 @@ dir = "bin"                       # working directory; defaults to the yard.ini 
 env = ["MEMO_DATA=data"]          # extra environment variables
 log = "memo.log"                  # server stdout / stderr; discarded if omitted
 strip_prefix = false              # if true, strip path before forwarding
+local_only = false                # if true, only requests from this machine are forwarded (others get 403)
 restart = "on-failure"            # on-failure / always / never
 start_timeout = "30s"             # how long to wait for the port to open
 disabled = false                  # if true, do not start
@@ -121,6 +122,9 @@ The environment variables `YARD_PORT` / `YARD_BASE` / `YARD_NAME` are always pas
 - WebSocket and SSE are relayed as is.
 - Requests to a server that is starting wait until its port opens (up to `start_timeout`).
   If it is stopped or waiting to restart, the response is `503`.
+- A server with `local_only = true` is only reachable from the machine yard runs on (loopback).
+  Requests from elsewhere get `403`. yard itself listens on all interfaces by default (`addr = ":8080"`),
+  so the other servers stay reachable from the LAN. As with `/.yard`, only the connection's address counts, not `X-Forwarded-For`.
 - If no server matches, the response is `404`. `/` also returns `404` until a server with `path = "/"` is registered.
 
 When a server exits abnormally, it is restarted after 1, 2, 4 seconds… (up to 1 minute).

@@ -314,3 +314,28 @@ func TestCleanPathRedirect(t *testing.T) {
 		t.Errorf("= %d %q", w.Code, w.Header().Get("Location"))
 	}
 }
+
+func TestLocalOnly(t *testing.T) {
+	s, ts, _ := newTestServer(t, strings.Replace(echoServer, `log = "echo.log"`, "local_only = true", 1))
+	h := s.Handler()
+
+	// From this machine it is forwarded as usual (httptest listens on loopback).
+	if code, body, _ := get(t, ts.URL+"/echo/"); code != 200 || !strings.Contains(body, "path=/echo/") {
+		t.Errorf("loopback = %d %s", code, body)
+	}
+
+	// From the LAN it is refused, even with a forged X-Forwarded-For.
+	r := httptest.NewRequest(http.MethodGet, "/echo/", nil)
+	r.RemoteAddr = "192.168.1.5:4567"
+	r.Header.Set("X-Forwarded-For", "127.0.0.1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("lan = %d %s", w.Code, w.Body)
+	}
+
+	p, _ := s.mgr.Get("echo")
+	if !p.Status().LocalOnly {
+		t.Error("status should report local_only")
+	}
+}

@@ -100,6 +100,7 @@ type Server struct {
 	Log     string   `toml:"log" json:"log"`         // stdout / stderr destination; discarded if empty
 
 	StripPrefix  bool     `toml:"strip_prefix" json:"strip_prefix"`   // strip path before forwarding
+	LocalOnly    bool     `toml:"local_only" json:"local_only"`       // forward only requests from this machine (loopback)
 	Restart      string   `toml:"restart" json:"restart"`             // on-failure (default) / always / never
 	StartTimeout Duration `toml:"start_timeout" json:"start_timeout"` // how long to wait for the port to open; default 30s
 	Disabled     bool     `toml:"disabled" json:"disabled"`           // do not start
@@ -374,6 +375,20 @@ func (a *Admin) Allowed(remoteAddr string) bool {
 	return false
 }
 
+// IsLoopback reports whether the client remoteAddr ("host:port") is this machine.
+// Only RemoteAddr counts; forwarding headers can be spoofed.
+func IsLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return ip.Unmap().IsLoopback()
+}
+
 // DefaultPath returns the default configuration file location, %APPDATA%\yard\yard.ini.
 // On Linux it is ~/.config/yard/yard.ini, on macOS ~/Library/Application Support/yard/yard.ini.
 func DefaultPath() string {
@@ -430,6 +445,7 @@ name = "yard"
 # env = ["MEMO_DATA=data/memo"]
 # log = "memo.log"
 # strip_prefix = false
+# local_only = false
 # restart = "on-failure"
 # start_timeout = "30s"
 # disabled = false

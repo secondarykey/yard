@@ -7,6 +7,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	"yard/internal/config"
 )
 
 // proxy forwards the request to the server whose path matches.
@@ -14,6 +16,8 @@ import (
 // The Host header is passed through unchanged, and X-Forwarded-For / -Host / -Proto and
 // X-Forwarded-Prefix (the server's path) are added. Upgrades such as WebSocket are
 // relayed as is by httputil.ReverseProxy.
+//
+// A server with local_only gets only requests from this machine; others get 403.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.mgr.Match(r.URL.Path)
 	if !ok {
@@ -24,6 +28,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	t := p.Config()
 	setTarget(r, t.Name)
+	if t.LocalOnly && !config.IsLoopback(r.RemoteAddr) {
+		s.renderError(w, r, http.StatusForbidden, "Forbidden", t.Name+" is available from this machine only")
+		return
+	}
 
 	// Stripping down to an empty path would break the server's relative links,
 	// so redirect "/memo" to "/memo/". Without stripping, leave it to the server.

@@ -19,7 +19,7 @@
     {{range .Servers}}
     <tr data-name="{{.Name}}">
       <td><strong>{{.Name}}</strong></td>
-      <td class="mono"><a href="{{.Path}}">{{.Path}}</a></td>
+      <td class="mono"><a href="{{.Path}}">{{.Path}}</a>{{if .LocalOnly}} <span class="tag" title="local_only">local only</span>{{end}}</td>
       <td><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
       <td class="num mono" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
       <td class="num mono" data-f="port">{{with .Port}}{{.}}{{end}}</td>
@@ -76,7 +76,7 @@
       if (servers.length !== document.querySelectorAll("tr[data-name]").length) { location.reload(); return; }
       for (const t of servers) {
         const row = document.querySelector('tr[data-name="' + CSS.escape(t.name) + '"]');
-        if (!row) { location.reload(); return; }
+        if (!row || !!row.querySelector(".tag") !== !!t.local_only) { location.reload(); return; }
         const f = n => row.querySelector("[data-f=" + n + "]");
         f("state").textContent = t.state;
         f("state").className = "state " + t.state;

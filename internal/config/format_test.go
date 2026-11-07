@@ -20,6 +20,7 @@ func TestFormatRoundTrip(t *testing.T) {
 				Args:         []string{"-port", "{port}", "it's", "tab\there", "日本語"},
 				Env:          []string{`DATA=D:\data`, "LINE=a\nb"},
 				StripPrefix:  true,
+				LocalOnly:    true,
 				Restart:      RestartAlways,
 				StartTimeout: Duration{90 * time.Second},
 				Disabled:     true,

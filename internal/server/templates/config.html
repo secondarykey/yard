@@ -96,6 +96,7 @@
         <strong class="s-name"></strong>
         <span class="mono s-path"></span>
         <span class="muted mono s-cmd"></span>
+        <span class="tag s-local">local only</span>
         <span class="tag s-off">disabled</span>
         <span class="spacer"></span>
         <span class="actions">
@@ -118,6 +119,7 @@
         </label>
         <label title="start_timeout"><span>Start timeout</span><input data-k="start_timeout" class="mono" placeholder="30s"></label>
         <label class="check" title="strip_prefix"><input type="checkbox" data-k="strip_prefix"><span>Strip prefix</span></label>
+        <label class="check" title="local_only"><input type="checkbox" data-k="local_only"><span>Local only</span></label>
         <label class="check" title="disabled"><input type="checkbox" data-k="disabled"><span>Disabled</span></label>
       </div>
     </details>
@@ -161,6 +163,7 @@
       card.querySelector(".s-path").textContent = v("path").value.trim();
       card.querySelector(".s-cmd").textContent = v("command").value.trim();
       card.querySelector(".s-off").hidden = !v("disabled").checked;
+      card.querySelector(".s-local").hidden = !v("local_only").checked;
     };
     const count = () => {
       const n = list.children.length;

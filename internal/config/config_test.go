@@ -154,3 +154,20 @@ func TestTemplateParses(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestIsLoopback(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:1234":        true,
+		"127.10.0.1:1234":       true,
+		"[::1]:1234":            true,
+		"[::ffff:127.0.0.1]:80": true,
+		"192.168.1.5:1234":      false,
+		"[fe80::1%eth0]:1234":   false,
+		"10.0.0.1":              false,
+		"garbage":               false,
+	} {
+		if got := IsLoopback(addr); got != want {
+			t.Errorf("IsLoopback(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}

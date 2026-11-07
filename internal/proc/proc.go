@@ -59,6 +59,7 @@ type Status struct {
 	ExitCode  *int      `json:"exit_code,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	Log       bool      `json:"log"`
+	LocalOnly bool      `json:"local_only"`
 }
 
 // Proc is the process of one server.
@@ -96,13 +97,14 @@ func (p *Proc) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	s := Status{
-		Name:     p.conf.Name,
-		Path:     p.conf.Path,
-		State:    p.state,
-		Restarts: p.restarts,
-		ExitCode: p.exitCode,
-		Error:    p.lastErr,
-		Log:      p.conf.Log != "",
+		Name:      p.conf.Name,
+		Path:      p.conf.Path,
+		State:     p.state,
+		Restarts:  p.restarts,
+		ExitCode:  p.exitCode,
+		Error:     p.lastErr,
+		Log:       p.conf.Log != "",
+		LocalOnly: p.conf.LocalOnly,
 	}
 	if p.state == StateStarting || p.state == StateRunning {
 		s.PID, s.Port, s.StartedAt = p.pid, p.port, p.startedAt

@@ -45,7 +45,7 @@ _cmd/hello              server for manual testing
 - **The default locations are `%APPDATA%\yard\yard.ini` and `%TEMP%\yard`.** `install` registers both
   as absolute paths (`-config` / `-logdir`) in the service. Under LocalSystem `%APPDATA%` / `%TEMP%`
   change to the system's locations, so do not resolve them again at run time.
-- **`/.yard` decides the client from `RemoteAddr` only.** Looking at `X-Forwarded-For` or similar allows spoofing.
+- **`/.yard` and `local_only` decide the client from `RemoteAddr` only.** Looking at `X-Forwarded-For` or similar allows spoofing.
   Editing the configuration is equivalent to running arbitrary programs, so the default is loopback only.
 - **Keep the write endpoints of `/.yard` inside `http.CrossOriginProtection`.** Without it the configuration
   can be rewritten via CSRF. Only `/.yard/health` is outside the restrictions (for monitoring).
