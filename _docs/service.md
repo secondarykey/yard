@@ -35,6 +35,15 @@ and only then unregisters it. If it cannot be stopped, it returns an error witho
 - Run as: LocalSystem by default. `[service] user` is not used on Windows
   (it would require passing a password). Change it in services.msc if needed.
 - Working directory: `C:\Windows\System32`.
+- **Environment:** under LocalSystem only the system (machine) environment variables apply. Anything set
+  only for the user is missing, and servers inherit yard's environment:
+  - A `command` found only through the user's `PATH` fails with `exec: "go": executable file not found in %PATH%`.
+  - Tool settings are lost too. For `go run`: a user-level `GOPATH`, `go env -w` settings
+    (`%APPDATA%\go\env`: `GOFLAGS`, `CGO_*`, ...), and the build / module caches go to
+    `C:\Windows\System32\config\systemprofile\...` instead, so builds can differ from the ones run by hand.
+  - Fixes: set the service's Log On account to that user in services.msc (the user's environment then applies),
+    or point `command` at a prebuilt executable. An absolute path to `go.exe` alone fixes only the lookup.
+    Adding the directory to the system `PATH` may need a reboot before services see it.
 - Start type: automatic (`StartType` defaults to automatic).
 - Recovery options: yard sets `OnFailure = restart` and `OnFailureDelayDuration = 5s`.
   The SCM restarts yard if yard itself exits abnormally.

@@ -17,6 +17,7 @@ package config
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -62,7 +63,22 @@ type Yard struct {
 	Addr      string `toml:"addr" json:"addr"`             // listen address; default ":8080"
 	AccessLog string `toml:"access_log" json:"access_log"` // access log destination; disabled if empty
 	Log       string `toml:"log" json:"log"`               // yard's own log destination; stderr if empty (the OS log when running as a service)
+
+	// Cert and Key are PEM files for HTTPS. With both set, addr serves HTTPS instead of HTTP.
+	// Relative paths are resolved against the configuration file's directory.
+	Cert string `toml:"cert" json:"cert"`
+	Key  string `toml:"key" json:"key"`
+	// RedirectAddr, with HTTPS on, is a plain-HTTP listen address that redirects every request to https.
+	RedirectAddr string `toml:"redirect_addr" json:"redirect_addr"`
+
+	certificate *tls.Certificate // loaded from Cert / Key by Parse
 }
+
+// TLS reports whether addr serves HTTPS.
+func (y *Yard) TLS() bool { return y.Cert != "" }
+
+// Certificate returns the certificate loaded by Parse, or nil without HTTPS.
+func (y *Yard) Certificate() *tls.Certificate { return y.certificate }
 
 // Admin holds the /.yard settings.
 type Admin struct {
@@ -201,6 +217,9 @@ func (c *Config) normalize() error {
 	}
 	c.Yard.AccessLog = c.LogPath(c.Yard.AccessLog)
 	c.Yard.Log = c.LogPath(c.Yard.Log)
+	if err := c.Yard.loadTLS(c); err != nil {
+		errs = append(errs, err)
+	}
 
 	if err := c.Admin.parse(); err != nil {
 		errs = append(errs, err)
@@ -276,6 +295,34 @@ func (c *Config) normalize() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// loadTLS resolves cert / key and loads them, so that a broken certificate is caught
+// before the configuration is saved rather than when yard next starts.
+func (y *Yard) loadTLS(c *Config) error {
+	y.certificate = nil
+	switch {
+	case y.Cert == "" && y.Key == "":
+		if y.RedirectAddr != "" {
+			return errors.New("yard.redirect_addr needs yard.cert and yard.key")
+		}
+		return nil
+	case y.Cert == "" || y.Key == "":
+		return errors.New("yard.cert and yard.key must be set together")
+	}
+	y.Cert = c.Abs(y.Cert)
+	y.Key = c.Abs(y.Key)
+	cert, err := tls.LoadX509KeyPair(y.Cert, y.Key)
+	if err != nil {
+		return fmt.Errorf("yard.cert / yard.key: %w", err)
+	}
+	y.certificate = &cert
+	if y.RedirectAddr != "" {
+		if _, _, err := net.SplitHostPort(y.RedirectAddr); err != nil {
+			return fmt.Errorf("yard.redirect_addr: %w", err)
+		}
+	}
+	return nil
 }
 
 // cleanPath normalizes path to start with "/" and have no trailing slash (the root is "/").
@@ -414,6 +461,10 @@ const Template = `# yard configuration file (TOML)
 addr = ":8080"
 # access_log = "access.log"
 # log = "yard.log"
+# Serve HTTPS on addr (PEM files, relative to this file). redirect_addr redirects plain HTTP to it.
+# cert = "yard.crt"
+# key = "yard.key"
+# redirect_addr = ":80"
 
 [admin]
 # Clients allowed to use /.yard (IP / CIDR / "*"). Loopback only by default.

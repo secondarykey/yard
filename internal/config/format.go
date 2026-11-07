@@ -15,7 +15,10 @@ func Format(c *Config) []byte {
 	w.table("[yard]", false,
 		str("addr", c.Yard.Addr),
 		str("access_log", c.Yard.AccessLog),
-		str("log", c.Yard.Log))
+		str("log", c.Yard.Log),
+		str("cert", c.Yard.Cert),
+		str("key", c.Yard.Key),
+		str("redirect_addr", c.Yard.RedirectAddr))
 	w.table("[admin]", false,
 		list("allow", c.Admin.Allow),
 		str("password_hash", c.Admin.PasswordHash))

@@ -32,13 +32,14 @@ internal/proc           server process management (Proc: one server, Manager: al
   tree_unix.go          groups it with a process group
 internal/server         HTTP (forwarding, access log, /.yard)
   auth.go               login sessions for /.yard
+  tls.go                HTTPS certificate selection and the http → https redirect
   templates/            admin UI HTML
 _cmd/hello              server for manual testing
 ```
 
 ## Rules that are easy to break
 
-- **Relative paths have two bases.** `command` / `dir` are relative to the yard.ini directory (`config.Abs`),
+- **Relative paths have two bases.** `command` / `dir` / `cert` / `key` are relative to the yard.ini directory (`config.Abs`),
   `log` / `access_log` to the log directory (`config.LogPath`). A service's working directory is
   System32 or `/`, so never use a path without going through one of them. `command` is resolved as a path
   only when it contains a separator; otherwise it is left to PATH lookup.
@@ -69,6 +70,11 @@ _cmd/hello              server for manual testing
   as written (relative paths, empty = default), never the normalized ones. `config.Format` writes them out;
   a key added to `config.Server` etc. needs a json tag, a line in `Format`, and a field in `config.html`.
 - **Validate before saving the configuration.** `SaveConfig` replaces the file via a temporary file only when `config.Parse` succeeds.
+- **HTTPS is done by yard itself (`[yard] cert` / `key`), not by a proxy in front.** A proxy on the same machine
+  makes every client loopback, which opens `/.yard` and `local_only` to everyone. `config.Parse` loads the
+  key pair (so saving a broken certificate fails); `Server.TLSConfig` takes it from the current configuration
+  on each handshake, so a reload renews it. Turning HTTPS on/off and `redirect_addr` need a restart.
+  Keep cookies' `Secure` and `X-Forwarded-Proto` derived from `r.TLS`.
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
   Windows services do not receive signals.
