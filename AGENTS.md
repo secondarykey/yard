@@ -80,3 +80,10 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 - On Unix, if yard is killed with SIGKILL, servers are left running (pdeathsig is not used).
 - `strip_prefix` does not rewrite absolute paths in HTML or Cookie paths.
 - Service registration is unverified on real Windows, Linux, and macOS machines (_docs/service.md).
+
+## TODO
+
+- Use the digital rain (`/.yard/matrix`, `templates/matrix.html`) for authentication on the config page.
+  The idea: show the rain as the screen in front of `/.yard/config` (e.g. a login / unlock screen).
+  Today `/.yard` has no authentication; it relies only on the `admin.allow` client restriction.
+  The method (password, token, etc.) is undecided.
