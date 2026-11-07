@@ -16,6 +16,17 @@ yard は `yard install` で登録し、登録時に `-config <yard.ini の絶対
 `[service]` の `name` を変えると、同じマシンに yard を複数登録できる。
 `[service]` の変更は `yard uninstall` → `yard install` で反映される（再起動では反映されない）。
 
+### uninstall
+
+kardianos/service の `Uninstall` は、Windows と systemd では**動いているサービスを止めない**。
+
+- Windows: サービスは「削除予定」になるだけで動き続け、止まった時点で消える。
+- systemd: `disable` とユニットファイルの削除だけを行い、プロセスは動き続ける。
+- launchd: 停止してから plist を消す。
+
+そのため `yard uninstall` は、状態が running なら先に `Stop` し、止まったこと（最大 30 秒）を
+確かめてから登録を外す。止められなかったときは登録を外さずにエラーにする。
+
 ## Windows（SCM）
 
 - 登録先: サービスコントロールマネージャ。`sc query <name>` / `services.msc` で確認できる。

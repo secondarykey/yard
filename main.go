@@ -119,12 +119,49 @@ func control(svc service.Service, cmd, cfgPath string) error {
 		}
 		fmt.Printf("installed (config: %s)\n", cfgPath)
 		return nil
+	case "uninstall":
+		if err := stopForUninstall(svc); err != nil {
+			return err
+		}
+		if err := svc.Uninstall(); err != nil {
+			return fmt.Errorf("uninstall: %w", err)
+		}
+		fmt.Println("uninstall: ok")
+		return nil
 	}
 	if err := service.Control(svc, cmd); err != nil {
 		return fmt.Errorf("%s: %w (valid: init, status, %s)", cmd, err, strings.Join(service.ControlAction[:], ", "))
 	}
 	fmt.Printf("%s: ok\n", cmd)
 	return nil
+}
+
+// stopForUninstall は、動いているサービスを止めてから戻る。
+//
+// kardianos/service の Uninstall は Windows と systemd では停止しない。
+// Windows では「削除予定」のまま動き続け、systemd では登録が消えたプロセスが
+// ツールごと残る。止められなかったときは登録も外さずにエラーにする。
+func stopForUninstall(svc service.Service) error {
+	st, err := svc.Status()
+	if err != nil || st != service.StatusRunning {
+		// 未登録などで状態が取れない場合は、Uninstall 側のエラーに任せる。
+		return nil
+	}
+	fmt.Println("stopping...")
+	if err := svc.Stop(); err != nil {
+		return fmt.Errorf("stop before uninstall: %w", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		st, err := svc.Status()
+		if err != nil || st != service.StatusRunning {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("stop before uninstall: service is still running")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func statusName(s service.Status) string {
@@ -252,7 +289,7 @@ usage:
 commands:
   init        設定ファイルの雛形を書き出す
   install     サービスとして登録する（-config の絶対パスが登録される）
-  uninstall   登録を解除する
+  uninstall   動いていれば停止し、登録を解除する
   start       開始
   stop        停止
   restart     再起動

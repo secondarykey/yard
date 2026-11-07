@@ -36,7 +36,7 @@ yard install
 yard start
 ```
 
-`uninstall` / `stop` / `restart` / `status` もある。設定ファイルは `-config` で指定でき、
+`uninstall` / `stop` / `restart` / `status` もある。`uninstall` は動いているサービスを止めてから登録を外す。設定ファイルは `-config` で指定でき、
 省略時はカレントディレクトリの `yard.ini`、無ければ実行ファイルと同じ場所の `yard.ini` を使う。
 `install` は設定ファイルの絶対パスをサービスに登録する。
 
