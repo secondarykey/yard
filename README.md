@@ -131,7 +131,7 @@ A new port is picked on each start. Child processes created by the server are st
 | URL | Description |
 |---|---|
 | `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
-| `GET /.yard/config` | Edit the configuration file. Validated and applied on save |
+| `GET /.yard/config` | Edit the configuration as a form (`?view=text` for the raw file). Validated and applied on save. Saving from the form rewrites yard.ini without its comments |
 | `GET /.yard/servers/{name}/log` | Server output (last 256KB). `?raw` for plain text |
 | `GET /.yard/matrix` | Digital rain (just for fun) |
 | `GET /.yard/health` | Whether yard is alive and the state of each server (**no client restriction**) |
@@ -140,7 +140,7 @@ A new port is picked on each start. Child processes created by the server are st
 | `POST /.yard/api/servers/{name}/{start\|stop\|restart}` | Control a server (JSON) |
 | `POST /.yard/api/reload` | Reload and apply yard.ini |
 | `GET /.yard/api/config` | Contents of yard.ini |
-| `PUT /.yard/api/config` | Validate, save, and apply new contents |
+| `PUT /.yard/api/config` | Validate, save, and apply new contents (TOML, or JSON with the same keys when `Content-Type: application/json`) |
 
 When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
 Changes to `yard.addr` / `yard.log` / `[service]` require restarting yard (`[service]` requires re-registering).

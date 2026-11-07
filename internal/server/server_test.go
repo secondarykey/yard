@@ -218,7 +218,7 @@ func TestAdmin(t *testing.T) {
 	}
 
 	// Pages
-	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/servers/echo/log", "/.yard/matrix"} {
+	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/config?view=text", "/.yard/servers/echo/log", "/.yard/matrix"} {
 		if code, body, _ := get(t, ts.URL+u); code != 200 || !strings.Contains(body, "<html") {
 			t.Errorf("%s = %d", u, code)
 		}
@@ -237,6 +237,33 @@ func TestAdmin(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
 		t.Error("invalid config was written")
+	}
+
+	// The form editor sends JSON, which is written out as TOML
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config",
+		strings.NewReader(`{"yard":{"addr":":0"},"admin":{"allow":[]},"server":[{"name":"x","path":"/x","command":"x","start_timeout":"1m","disabled":true}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("json config: %v %v", res, err)
+	}
+	want := `[yard]
+addr = ":0"
+
+[[server]]
+name = "x"
+path = "/x"
+command = "x"
+start_timeout = "1m0s"
+disabled = true
+`
+	if after, _ := os.ReadFile(path); string(after) != want {
+		t.Errorf("json config written as:\n%s", after)
+	}
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader(`{"server":[{"nme":"x"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	if res, err = http.DefaultClient.Do(req); err != nil || res.StatusCode != http.StatusBadRequest {
+		t.Errorf("unknown json field: %v %v", res, err)
 	}
 
 	// A valid configuration is saved and applied (the server goes away)

@@ -46,22 +46,22 @@ const (
 
 // Config is the whole of yard.ini.
 type Config struct {
-	Yard    Yard     `toml:"yard"`
-	Admin   Admin    `toml:"admin"`
-	Service Service  `toml:"service"`
-	Servers []Server `toml:"server"`
+	Yard    Yard     `toml:"yard" json:"yard"`
+	Admin   Admin    `toml:"admin" json:"admin"`
+	Service Service  `toml:"service" json:"service"`
+	Servers []Server `toml:"server" json:"server"`
 
 	// Dir is the directory containing the configuration file (absolute). Base for relative command / dir.
-	Dir string `toml:"-"`
+	Dir string `toml:"-" json:"-"`
 	// LogDir is the log directory (absolute). Base for relative log / access_log.
-	LogDir string `toml:"-"`
+	LogDir string `toml:"-" json:"-"`
 }
 
 // Yard holds yard's own listen and log settings.
 type Yard struct {
-	Addr      string `toml:"addr"`       // listen address; default ":8080"
-	AccessLog string `toml:"access_log"` // access log destination; disabled if empty
-	Log       string `toml:"log"`        // yard's own log destination; stderr if empty (the OS log when running as a service)
+	Addr      string `toml:"addr" json:"addr"`             // listen address; default ":8080"
+	AccessLog string `toml:"access_log" json:"access_log"` // access log destination; disabled if empty
+	Log       string `toml:"log" json:"log"`               // yard's own log destination; stderr if empty (the OS log when running as a service)
 }
 
 // Admin holds the /.yard settings.
@@ -69,7 +69,7 @@ type Admin struct {
 	// Allow lists the clients (IP or CIDR) allowed to use /.yard.
 	// Editing the configuration is equivalent to running programs, so the default is loopback only.
 	// "*" allows everything. /.yard/health is not subject to this restriction.
-	Allow []string `toml:"allow"`
+	Allow []string `toml:"allow" json:"allow"`
 
 	prefixes []netip.Prefix
 	any      bool
@@ -77,35 +77,40 @@ type Admin struct {
 
 // Service holds the service registration information. Used only by install.
 type Service struct {
-	Name        string `toml:"name"`
-	DisplayName string `toml:"display_name"`
-	Description string `toml:"description"`
-	User        string `toml:"user"` // user to run as (Linux/macOS); OS default if empty
+	Name        string `toml:"name" json:"name"`
+	DisplayName string `toml:"display_name" json:"display_name"`
+	Description string `toml:"description" json:"description"`
+	User        string `toml:"user" json:"user"` // user to run as (Linux/macOS); OS default if empty
 	// UserService registers it as a service of the logged-in user (Linux: systemd --user,
 	// macOS: ~/Library/LaunchAgents). Ignored on Windows.
-	UserService bool `toml:"user_service"`
+	UserService bool `toml:"user_service" json:"user_service"`
 }
 
 // Server is one server (program) that yard starts and publishes.
 type Server struct {
-	Name    string   `toml:"name"`    // identifier (required, unique)
-	Path    string   `toml:"path"`    // public URI prefix (required, unique), e.g. "/memo"
-	Command string   `toml:"command"` // executable (required)
-	Args    []string `toml:"args"`    // arguments; {port}, {base}, etc. are substituted
-	Dir     string   `toml:"dir"`     // working directory; defaults to the configuration file's directory
-	Env     []string `toml:"env"`     // extra environment variables "KEY=VALUE"; substituted
-	Log     string   `toml:"log"`     // stdout / stderr destination; discarded if empty
+	Name    string   `toml:"name" json:"name"`       // identifier (required, unique)
+	Path    string   `toml:"path" json:"path"`       // public URI prefix (required, unique), e.g. "/memo"
+	Command string   `toml:"command" json:"command"` // executable (required)
+	Args    []string `toml:"args" json:"args"`       // arguments; {port}, {base}, etc. are substituted
+	Dir     string   `toml:"dir" json:"dir"`         // working directory; defaults to the configuration file's directory
+	Env     []string `toml:"env" json:"env"`         // extra environment variables "KEY=VALUE"; substituted
+	Log     string   `toml:"log" json:"log"`         // stdout / stderr destination; discarded if empty
 
-	StripPrefix  bool     `toml:"strip_prefix"`  // strip path before forwarding
-	Restart      string   `toml:"restart"`       // on-failure (default) / always / never
-	StartTimeout Duration `toml:"start_timeout"` // how long to wait for the port to open; default 30s
-	Disabled     bool     `toml:"disabled"`      // do not start
+	StripPrefix  bool     `toml:"strip_prefix" json:"strip_prefix"`   // strip path before forwarding
+	Restart      string   `toml:"restart" json:"restart"`             // on-failure (default) / always / never
+	StartTimeout Duration `toml:"start_timeout" json:"start_timeout"` // how long to wait for the port to open; default 30s
+	Disabled     bool     `toml:"disabled" json:"disabled"`           // do not start
 }
 
 // Duration accepts TOML strings such as "30s".
 type Duration struct{ time.Duration }
 
+// An empty string is the zero value (the default).
 func (d *Duration) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		d.Duration = 0
+		return nil
+	}
 	v, err := time.ParseDuration(string(b))
 	if err != nil {
 		return err
@@ -114,7 +119,12 @@ func (d *Duration) UnmarshalText(b []byte) error {
 	return nil
 }
 
-func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+func (d Duration) MarshalText() ([]byte, error) {
+	if d.Duration == 0 {
+		return nil, nil
+	}
+	return []byte(d.String()), nil
+}
 
 // Load reads the configuration file at path, fills in defaults, and validates it.
 // logDir is the base for relative log paths.
@@ -133,7 +143,22 @@ func Load(path, logDir string) (*Config, error) {
 // Parse interprets the configuration text. dir is the base for relative command / dir,
 // and logDir the base for relative log paths.
 func Parse(data []byte, dir, logDir string) (*Config, error) {
-	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	c, err := Decode(data)
+	if err != nil {
+		return nil, err
+	}
+	c.Dir = dir
+	c.LogDir = logDir
+	if err := c.normalize(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// Decode reads the configuration text as written: no defaults, no path resolution, and no checks
+// beyond TOML syntax and unknown keys. This is what the form editor shows and what Format writes back.
+func Decode(data []byte) (*Config, error) {
+	data = bytes.TrimPrefix(data, []byte("ï»¿"))
 
 	var c Config
 	md, err := toml.Decode(string(data), &c)
@@ -146,11 +171,6 @@ func Parse(data []byte, dir, logDir string) (*Config, error) {
 			keys[i] = k.String()
 		}
 		return nil, withLegacyHint(fmt.Errorf("unknown keys: %s", strings.Join(keys, ", ")), data)
-	}
-	c.Dir = dir
-	c.LogDir = logDir
-	if err := c.normalize(); err != nil {
-		return nil, err
 	}
 	return &c, nil
 }

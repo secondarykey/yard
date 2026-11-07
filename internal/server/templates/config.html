@@ -1,31 +1,256 @@
 {{template "head" "Config"}}
 {{template "nav" .Page}}
 <main>
-  {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
-  {{if .Saved}}<div class="msg ok">Saved and applied</div>{{end}}
-  {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
-  <form method="post" action="{{admin}}/config">
-    <div class="bar">
-      <h1>Config</h1>
-      <span class="muted mono">{{.File}}</span>
-      <span class="spacer"></span>
-      <button class="primary">Save and apply</button>
-    </div>
+  <div id="msgs">
+    {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
+    {{if .Saved}}<div class="msg ok">Saved and applied</div>{{end}}
+    {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
+  </div>
+  <div class="bar">
+    <h1>Config</h1>
+    <span class="muted mono">{{.File}}</span>
+    <span class="spacer"></span>
+    <nav class="seg">
+      <a href="{{admin}}/config" {{if eq .View "form"}}class="on"{{end}}>Form</a>
+      <a href="{{admin}}/config?view=text" {{if eq .View "text"}}class="on"{{end}}>Text</a>
+    </nav>
+    {{if eq .View "form"}}
+    <button class="primary" id="save" title="Comments in the file are not kept">Save and apply</button>
+    {{else}}
+    <button class="primary" form="text">Save and apply</button>
+    {{end}}
+  </div>
+
+{{if eq .View "text"}}
+  <form method="post" action="{{admin}}/config" id="text">
     <div class="panel">
       <textarea class="mono" name="config" spellcheck="false" autocomplete="off">{{.Text}}</textarea>
     </div>
   </form>
+  <script>
+  (() => {
+    const ta = document.querySelector("textarea"), initial = ta.value;
+    let submitting = false;
+    ta.form.addEventListener("submit", () => submitting = true);
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        ta.form.requestSubmit();
+      }
+    });
+    addEventListener("beforeunload", e => {
+      if (!submitting && ta.value !== initial) e.preventDefault();
+    });
+  })();
+  </script>
+{{else}}
+  <form id="cfg" class="cfg" autocomplete="off" spellcheck="false">
+    <section class="panel sec">
+      <h2>yard</h2>
+      <div class="grid">
+        <label title="yard.addr"><span>Listen address</span><input data-k="yard.addr" class="mono" placeholder=":8080"></label>
+        <label title="yard.access_log"><span>Access log</span><input data-k="yard.access_log" class="mono"></label>
+        <label title="yard.log"><span>yard log</span><input data-k="yard.log" class="mono"></label>
+      </div>
+    </section>
+
+    <section class="panel sec">
+      <h2>Admin</h2>
+      <div class="grid">
+        <label title="admin.allow"><span>Allowed clients</span><textarea data-k="admin.allow" data-list rows="3" class="mono" placeholder="127.0.0.1&#10;::1"></textarea></label>
+      </div>
+    </section>
+
+    <section class="panel sec">
+      <h2>Service</h2>
+      <div class="grid">
+        <label title="service.name"><span>Name</span><input data-k="service.name" class="mono" placeholder="yard"></label>
+        <label title="service.display_name"><span>Display name</span><input data-k="service.display_name"></label>
+        <label class="wide" title="service.description"><span>Description</span><input data-k="service.description" placeholder="yard - intranet server proxy"></label>
+        <label title="service.user"><span>Run as user</span><input data-k="service.user" class="mono"></label>
+        <label class="check" title="service.user_service"><input type="checkbox" data-k="service.user_service"><span>User service</span></label>
+      </div>
+    </section>
+
+    <div class="bar sub">
+      <h2>Servers</h2>
+      <span class="muted" id="count"></span>
+      <span class="spacer"></span>
+      <button type="button" id="add">Add server</button>
+    </div>
+    <div id="servers"></div>
+  </form>
+
+  <template id="server">
+    <details class="panel srv">
+      <summary>
+        <strong class="s-name"></strong>
+        <span class="mono s-path"></span>
+        <span class="muted mono s-cmd"></span>
+        <span class="tag s-off">disabled</span>
+        <span class="spacer"></span>
+        <span class="actions">
+          <button type="button" data-a="up" title="Move up">↑</button>
+          <button type="button" data-a="down" title="Move down">↓</button>
+          <button type="button" data-a="copy">Duplicate</button>
+          <button type="button" data-a="remove" class="danger">Remove</button>
+        </span>
+      </summary>
+      <div class="grid">
+        <label title="name"><span>Name</span><input data-k="name" class="mono"></label>
+        <label title="path"><span>Path</span><input data-k="path" class="mono"></label>
+        <label class="wide" title="command"><span>Command</span><input data-k="command" class="mono"></label>
+        <label class="wide" title="args"><span>Arguments</span><textarea data-k="args" data-list rows="3" class="mono"></textarea></label>
+        <label class="wide" title="dir"><span>Working directory</span><input data-k="dir" class="mono" placeholder="{{.Dir}}"></label>
+        <label class="wide" title="env"><span>Environment</span><textarea data-k="env" data-list rows="2" class="mono" placeholder="KEY=VALUE"></textarea></label>
+        <label class="wide" title="log"><span>Log</span><input data-k="log" class="mono"></label>
+        <label title="restart"><span>Restart</span>
+          <select data-k="restart"><option value="">on-failure</option><option>always</option><option>never</option></select>
+        </label>
+        <label title="start_timeout"><span>Start timeout</span><input data-k="start_timeout" class="mono" placeholder="30s"></label>
+        <label class="check" title="strip_prefix"><input type="checkbox" data-k="strip_prefix"><span>Strip prefix</span></label>
+        <label class="check" title="disabled"><input type="checkbox" data-k="disabled"><span>Disabled</span></label>
+      </div>
+    </details>
+  </template>
+
+  <script>
+  (() => {
+    const data = {{.Form}} || {};
+    const form = document.getElementById("cfg"), list = document.getElementById("servers"),
+          tpl = document.getElementById("server"), saveBtn = document.getElementById("save");
+
+    const read = el => {
+      if (el.type === "checkbox") return el.checked;
+      if (el.hasAttribute("data-list")) return el.value.split("\n").map(s => s.replace(/\r$/, "")).filter(s => s.trim() !== "");
+      return el.value.trim();
+    };
+    const write = (el, v) => {
+      if (el.type === "checkbox") { el.checked = !!v; return; }
+      if (el.hasAttribute("data-list")) {
+        el.value = (v || []).join("\n");
+        el.rows = Math.min(Math.max(el.rows, (v || []).length + 1), 12);
+        return;
+      }
+      v = v == null ? "" : String(v);
+      if (el.tagName === "SELECT") {
+        if (v === "on-failure") v = "";
+        if (![...el.options].some(o => o.value === v)) el.add(new Option(v, v));
+      }
+      el.value = v;
+    };
+
+    const summary = card => {
+      const v = k => card.querySelector('[data-k="' + k + '"]');
+      card.querySelector(".s-name").textContent = v("name").value.trim() || "(new server)";
+      card.querySelector(".s-path").textContent = v("path").value.trim();
+      card.querySelector(".s-cmd").textContent = v("command").value.trim();
+      card.querySelector(".s-off").hidden = !v("disabled").checked;
+    };
+    const count = () => {
+      const n = list.children.length;
+      document.getElementById("count").textContent = n ? n : "";
+    };
+    const addServer = (s, open, after) => {
+      const card = tpl.content.firstElementChild.cloneNode(true);
+      card.querySelectorAll("[data-k]").forEach(el => write(el, s[el.dataset.k]));
+      card.open = open;
+      card.addEventListener("input", () => summary(card));
+      card.querySelector("summary").addEventListener("click", e => {
+        const b = e.target.closest("button[data-a]");
+        if (!b) return;
+        e.preventDefault();
+        switch (b.dataset.a) {
+          case "up": card.previousElementSibling?.before(card); break;
+          case "down": card.nextElementSibling?.after(card); break;
+          case "copy": {
+            const s = collectServer(card);
+            s.name = ""; s.path = "";
+            addServer(s, true, card).querySelector('[data-k="name"]').focus();
+            break;
+          }
+          case "remove": card.remove(); break;
+        }
+        count();
+      });
+      summary(card);
+      if (after) after.after(card); else list.append(card);
+      count();
+      return card;
+    };
+    const collectServer = card => {
+      const s = {};
+      card.querySelectorAll("[data-k]").forEach(el => s[el.dataset.k] = read(el));
+      return s;
+    };
+    const collect = () => {
+      const out = { yard: {}, admin: {}, service: {}, server: [] };
+      form.querySelectorAll("section [data-k]").forEach(el => {
+        const [sec, key] = el.dataset.k.split(".");
+        out[sec][key] = read(el);
+      });
+      list.querySelectorAll(":scope > .srv").forEach(card => out.server.push(collectServer(card)));
+      return out;
+    };
+
+    form.querySelectorAll("section [data-k]").forEach(el => {
+      const [sec, key] = el.dataset.k.split(".");
+      write(el, (data[sec] || {})[key]);
+    });
+    (data.server || []).forEach(s => addServer(s, false));
+
+    document.getElementById("add").addEventListener("click", () => {
+      const card = addServer({}, true);
+      card.scrollIntoView({ block: "nearest" });
+      card.querySelector('[data-k="name"]').focus();
+    });
+
+    const msgs = document.getElementById("msgs");
+    const show = items => {
+      msgs.replaceChildren(...items.map(([cls, text]) => {
+        const d = document.createElement("div");
+        d.className = "msg " + cls;
+        d.textContent = text;
+        return d;
+      }));
+      scrollTo({ top: 0 });
+    };
+
+    let saved = JSON.stringify(collect());
+    const save = async () => {
+      if (saveBtn.disabled) return;
+      saveBtn.disabled = true;
+      const body = JSON.stringify(collect());
+      try {
+        const res = await fetch("{{admin}}/api/config", {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body,
+        });
+        const text = await res.text();
+        let j;
+        try { j = JSON.parse(text); } catch (_) { j = { error: text.trim() || res.statusText }; }
+        if (!res.ok) { show([["error", j.error]]); return; }
+        saved = body;
+        show([["ok", "Saved and applied"], ...(j.notices || []).map(n => ["info", n])]);
+      } catch (e) {
+        show([["error", String(e)]]);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    };
+    saveBtn.addEventListener("click", save);
+    form.addEventListener("submit", e => { e.preventDefault(); save(); });
+    addEventListener("keydown", e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); }
+    });
+    addEventListener("beforeunload", e => {
+      if (JSON.stringify(collect()) !== saved) e.preventDefault();
+    });
+  })();
+  </script>
+{{end}}
 </main>
-<script>
-document.querySelector("textarea").addEventListener("keydown", e => {
-  if (e.key === "Tab" && !e.shiftKey) {
-    e.preventDefault();
-    e.target.setRangeText("\t", e.target.selectionStart, e.target.selectionEnd, "end");
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-    e.preventDefault();
-    e.target.form.requestSubmit();
-  }
-});
-</script>
 {{template "foot"}}

@@ -1,15 +1,18 @@
 package server
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -54,7 +57,7 @@ const logTailBytes = 256 << 10
 //	POST /api/servers/{name}/{action} JSON
 //	POST /api/reload                  JSON
 //	GET  /api/config                  contents of the configuration file
-//	PUT  /api/config                  validate, save, and apply
+//	PUT  /api/config                  validate, save, and apply (TOML, or JSON from the form editor)
 func (s *Server) adminHandler() http.Handler {
 	a := config.AdminPath
 
@@ -214,7 +217,10 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 
 type configData struct {
 	Page    string
+	View    string // "form" or "text"
 	File    string
+	Dir     string         // directory of the configuration file (base for relative command / dir)
+	Form    *config.Config // the configuration as written, for the form view
 	Text    string
 	Saved   bool
 	Notices []string
@@ -222,18 +228,27 @@ type configData struct {
 }
 
 func (s *Server) handleConfigPage(w http.ResponseWriter, r *http.Request) {
-	d := configData{Page: "config", File: s.path}
+	d := configData{Page: "config", View: "form", File: s.path, Dir: filepath.Dir(s.path)}
+	if r.URL.Query().Get("view") == "text" {
+		d.View = "text"
+	}
 	b, err := s.ReadConfig()
 	if err != nil {
 		d.Error = err.Error()
 	}
 	d.Text = string(b)
+	if d.View == "form" {
+		if d.Form, err = config.Decode(b); err != nil {
+			// The form cannot represent a file that does not decode; fix it as text.
+			d.View, d.Form, d.Error = "text", nil, err.Error()
+		}
+	}
 	s.render(w, http.StatusOK, "config.html", d)
 }
 
 func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 	text := r.PostFormValue("config")
-	d := configData{Page: "config", File: s.path, Text: text}
+	d := configData{Page: "config", View: "text", File: s.path, Dir: filepath.Dir(s.path), Text: text}
 	notices, err := s.SaveConfig([]byte(text))
 	if err != nil {
 		d.Error = err.Error()
@@ -286,11 +301,23 @@ func (s *Server) apiConfigGet(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+// apiConfigPut takes the configuration text, or with Content-Type application/json the configuration
+// as the form editor sends it (the keys of yard.ini), which is written out with config.Format.
 func (s *Server) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
+	}
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "application/json" {
+		var c config.Config
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&c); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		b = config.Format(&c)
 	}
 	notices, err := s.SaveConfig(b)
 	if err != nil {

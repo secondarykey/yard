@@ -25,6 +25,7 @@ with no frontend build. Keep it that way.
 ```
 main.go                 entry point, subcommands, service control, logger
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
+  format.go             writing a Config back as yard.ini (for the form editor)
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
@@ -55,6 +56,9 @@ _cmd/hello              server for manual testing
   servers do not survive even if yard is killed. On Unix, SIGTERM → SIGKILL to the process group.
 - **Applying the configuration (`Manager.Apply`) is diff-based.** Servers whose `config.Server` is equal under
   `reflect.DeepEqual` keep running. Do not give `config.Server` non-comparable values (functions, etc.).
+- **The form editor works on `config.Decode`, not `config.Parse`.** It must show and write back the values
+  as written (relative paths, empty = default), never the normalized ones. `config.Format` writes them out;
+  a key added to `config.Server` etc. needs a json tag, a line in `Format`, and a field in `config.html`.
 - **Validate before saving the configuration.** `SaveConfig` replaces the file via a temporary file only when `config.Parse` succeeds.
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
@@ -75,6 +79,7 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 ## Known issues
 
 - Server logs (`log`) are not rotated.
+- Saving from the form editor rewrites yard.ini without its comments.
 - On Windows there is no way to ask a server to stop gracefully; stopping terminates it immediately.
 - Grandchild processes created between start and being put in the job object can leak (Windows).
 - On Unix, if yard is killed with SIGKILL, servers are left running (pdeathsig is not used).

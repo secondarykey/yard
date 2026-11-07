@@ -58,8 +58,41 @@ button.primary:hover { filter: brightness(1.1); color: #fff; }
 .msg.error { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
 .msg.info { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 .msg.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, transparent); }
-textarea { display: block; width: 100%; min-height: 65vh; padding: 14px; border: none; outline: none; resize: vertical;
+.panel > textarea { display: block; width: 100%; min-height: 65vh; padding: 14px; border: none; outline: none; resize: vertical;
            background: var(--panel); color: var(--fg); tab-size: 4; }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
+.seg a { padding: 3px 12px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.seg a.on { background: var(--bg); color: var(--fg); font-weight: 600; }
+.seg a:hover { text-decoration: none; color: var(--fg); }
+.cfg h2 { font-size: 14px; margin: 0; }
+.sec { padding: 14px 16px 16px; margin-bottom: 16px; overflow: visible; }
+.sec h2 { margin-bottom: 10px; }
+.bar.sub { margin: 24px 0 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 16px; align-items: end; }
+.grid label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.grid label > span { font-size: 12px; color: var(--muted); }
+.grid label.wide { grid-column: 1 / -1; }
+.grid label.check { flex-direction: row; align-items: center; gap: 8px; padding: 6px 0; }
+.grid label.check > span { font-size: 13px; color: var(--fg); }
+.grid input:not([type=checkbox]), .grid select, .grid textarea {
+  font: inherit; width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg); outline: none; }
+.grid .mono, .grid textarea.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+.grid textarea { resize: vertical; tab-size: 4; }
+.grid input:focus, .grid select:focus, .grid textarea:focus { border-color: var(--accent); }
+.grid input::placeholder, .grid textarea::placeholder { color: var(--idle); opacity: .7; }
+.srv { margin-bottom: 8px; overflow: visible; }
+.srv > summary { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; list-style: none; }
+.srv > summary::-webkit-details-marker { display: none; }
+.srv > summary::before { content: "▸"; color: var(--muted); width: 10px; }
+.srv[open] > summary::before { content: "▾"; }
+.srv[open] > summary { border-bottom: 1px solid var(--line); }
+.srv .s-cmd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.srv .spacer { flex: 1; }
+.srv .grid { padding: 14px 16px 16px; }
+.tag { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--idle); }
+.tag[hidden] { display: none; }
+button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
 pre.log { margin: 0; padding: 14px; max-height: 75vh; overflow: auto; white-space: pre-wrap; word-break: break-all; }
 .muted { color: var(--muted); }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
