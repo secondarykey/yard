@@ -168,11 +168,11 @@ type dashboardData struct {
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "dashboard.html", &dashboardData{
 		pageData: pageData{Page: "servers"},
-		Servers: s.mgr.Statuses(),
-		Addr:    s.addr,
-		Config:  s.path,
-		Notices: r.URL.Query()["notice"],
-		Error:   r.URL.Query().Get("error"),
+		Servers:  s.mgr.Statuses(),
+		Addr:     s.addr,
+		Config:   s.path,
+		Notices:  r.URL.Query()["notice"],
+		Error:    r.URL.Query().Get("error"),
 	})
 }
 
@@ -241,10 +241,10 @@ type configData struct {
 	Dir      string         // directory of the configuration file (base for relative command / dir)
 	Form     *config.Config // the configuration as written, for the form view
 	Password bool           // the file sets admin.password_hash (which is not part of Form's JSON)
-	Text    string
-	Saved   bool
-	Notices []string
-	Error   string
+	Text     string
+	Saved    bool
+	Notices  []string
+	Error    string
 }
 
 func (s *Server) handleConfigPage(w http.ResponseWriter, r *http.Request) {
