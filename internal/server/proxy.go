@@ -9,24 +9,24 @@ import (
 	"strings"
 )
 
-// proxy は path に一致するツールへリクエストを転送する。
+// proxy は path に一致するサーバへリクエストを転送する。
 //
 // Host ヘッダは元のまま渡し、X-Forwarded-For / -Host / -Proto と
-// X-Forwarded-Prefix（ツールの path）を付ける。WebSocket などの Upgrade も
+// X-Forwarded-Prefix（サーバの path）を付ける。WebSocket などの Upgrade も
 // httputil.ReverseProxy がそのまま中継する。
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.mgr.Match(r.URL.Path)
 	if !ok {
-		// "/" も含め、どのツールにも一致しなければ 404。
+		// "/" も含め、どのサーバにも一致しなければ 404。
 		// yard 自身の画面は /.yard 以外には出さない。
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
-	t := p.Tool()
-	setTool(r, t.Name)
+	t := p.Config()
+	setTarget(r, t.Name)
 
-	// 取り除いた結果が空のパスになると、ツール側の相対リンクが壊れるので
-	// "/memo" は "/memo/" に揃える。取り除かない場合はツールの判断に任せる。
+	// 取り除いた結果が空のパスになると、サーバ側の相対リンクが壊れるので
+	// "/memo" は "/memo/" に揃える。取り除かない場合はサーバの判断に任せる。
 	if t.StripPrefix && t.Path != "/" && r.URL.Path == t.Path {
 		u := *r.URL
 		u.Path, u.RawPath = t.Path+"/", ""
@@ -71,7 +71,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.StripPrefix && t.Path != "/" {
 		rp.ModifyResponse = func(res *http.Response) error {
-			// ツールが自分の "/" 基準で返したリダイレクト先に公開パスを付け直す。
+			// サーバが自分の "/" 基準で返したリダイレクト先に公開パスを付け直す。
 			if loc := res.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") {
 				res.Header.Set("Location", t.Path+loc)
 			}

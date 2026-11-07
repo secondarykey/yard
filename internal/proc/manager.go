@@ -10,7 +10,7 @@ import (
 	"yard/internal/config"
 )
 
-// Manager は全ツールの Proc を持ち、パスからツールを引く。
+// Manager は全サーバの Proc を持ち、パスからサーバを引く。
 type Manager struct {
 	logger *log.Logger
 
@@ -25,17 +25,17 @@ func NewManager(logger *log.Logger) *Manager {
 	return &Manager{logger: logger, procs: map[string]*Proc{}}
 }
 
-// Apply は設定を反映する。設定が変わっていないツールは動かしたままにし、
+// Apply は設定を反映する。設定が変わっていないサーバは動かしたままにし、
 // 変わったものは作り直し、消えたものは止め、増えたものは起動する。
-func (m *Manager) Apply(tools []config.Tool) {
+func (m *Manager) Apply(servers []config.Server) {
 	m.mu.Lock()
 	old := m.procs
-	next := make(map[string]*Proc, len(tools))
-	order := make([]string, 0, len(tools))
+	next := make(map[string]*Proc, len(servers))
+	order := make([]string, 0, len(servers))
 	var stop, start []*Proc
-	for _, t := range tools {
+	for _, t := range servers {
 		order = append(order, t.Name)
-		if p, ok := old[t.Name]; ok && reflect.DeepEqual(p.tool, t) {
+		if p, ok := old[t.Name]; ok && reflect.DeepEqual(p.conf, t) {
 			next[t.Name] = p
 			continue
 		}
@@ -58,7 +58,7 @@ func (m *Manager) Apply(tools []config.Tool) {
 	for _, p := range next {
 		byLen = append(byLen, p)
 	}
-	sort.Slice(byLen, func(i, j int) bool { return len(byLen[i].tool.Path) > len(byLen[j].tool.Path) })
+	sort.Slice(byLen, func(i, j int) bool { return len(byLen[i].conf.Path) > len(byLen[j].conf.Path) })
 
 	m.procs, m.order, m.byLen = next, order, byLen
 	m.mu.Unlock()
@@ -67,12 +67,12 @@ func (m *Manager) Apply(tools []config.Tool) {
 	parallel(stop, func(p *Proc) { p.Stop() })
 	for _, p := range start {
 		if err := p.Start(); err != nil {
-			m.logger.Printf("[%s] %v", p.tool.Name, err)
+			m.logger.Printf("[%s] %v", p.conf.Name, err)
 		}
 	}
 }
 
-// StopAll は全ツールを止める。
+// StopAll は全サーバを止める。
 func (m *Manager) StopAll() {
 	m.mu.RLock()
 	all := make([]*Proc, 0, len(m.procs))
@@ -91,7 +91,7 @@ func (m *Manager) Get(name string) (*Proc, bool) {
 	return p, ok
 }
 
-// Statuses は設定ファイルの並びで全ツールの状態を返す。
+// Statuses は設定ファイルの並びで全サーバの状態を返す。
 func (m *Manager) Statuses() []Status {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -102,13 +102,13 @@ func (m *Manager) Statuses() []Status {
 	return out
 }
 
-// Match は URL パスに最長一致するツールを返す。
+// Match は URL パスに最長一致するサーバを返す。
 // "/memo" は "/memo" と "/memo/..." に一致し、"/memox" には一致しない。
 func (m *Manager) Match(urlPath string) (*Proc, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, p := range m.byLen {
-		if MatchPath(p.tool.Path, urlPath) {
+		if MatchPath(p.conf.Path, urlPath) {
 			return p, true
 		}
 	}

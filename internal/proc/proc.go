@@ -1,11 +1,11 @@
-// Package proc は yard が起動するツールのプロセスを管理する。
+// Package proc は yard が起動するサーバのプロセスを管理する。
 //
-// 1つのツールにつき1つの監視 goroutine（Proc.supervise）が、
+// 1つのサーバにつき1つの監視 goroutine（Proc.supervise）が、
 // 空きポートの確保 → 起動 → ポートが開くのを待つ → 終了を待つ → 再起動
 // を繰り返す。ポートは起動のたびに取り直す（前回のポートが TIME_WAIT や
 // 他プロセスに取られていても起動できるように）。
 //
-// ツールが子プロセスを作っても取り残さないよう、停止はプロセスツリー単位で行う
+// サーバが子プロセスを作っても取り残さないよう、停止はプロセスツリー単位で行う
 // （Windows はジョブオブジェクト、それ以外はプロセスグループ。kill_*.go）。
 package proc
 
@@ -27,7 +27,7 @@ import (
 	"yard/internal/config"
 )
 
-// State はツールの状態。
+// State はサーバの状態。
 type State string
 
 const (
@@ -47,7 +47,7 @@ const (
 	stableAfter = 30 * time.Second
 )
 
-// Status は外部に見せるツールの状態。
+// Status は外部に見せるサーバの状態。
 type Status struct {
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
@@ -61,9 +61,9 @@ type Status struct {
 	Log       bool      `json:"log"`
 }
 
-// Proc は1つのツールのプロセス。
+// Proc は1つのサーバのプロセス。
 type Proc struct {
-	tool   config.Tool
+	conf   config.Server
 	logger *log.Logger
 
 	mu        sync.Mutex
@@ -80,29 +80,29 @@ type Proc struct {
 }
 
 // New は Proc を作る。起動はしない。
-func New(t config.Tool, logger *log.Logger) *Proc {
-	p := &Proc{tool: t, logger: logger, state: StateStopped, ready: make(chan struct{})}
+func New(t config.Server, logger *log.Logger) *Proc {
+	p := &Proc{conf: t, logger: logger, state: StateStopped, ready: make(chan struct{})}
 	if t.Disabled {
 		p.state = StateDisabled
 	}
 	return p
 }
 
-// Tool は設定を返す。
-func (p *Proc) Tool() config.Tool { return p.tool }
+// Config は設定を返す。
+func (p *Proc) Config() config.Server { return p.conf }
 
 // Status は現在の状態を返す。
 func (p *Proc) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	s := Status{
-		Name:     p.tool.Name,
-		Path:     p.tool.Path,
+		Name:     p.conf.Name,
+		Path:     p.conf.Path,
 		State:    p.state,
 		Restarts: p.restarts,
 		ExitCode: p.exitCode,
 		Error:    p.lastErr,
-		Log:      p.tool.Log != "",
+		Log:      p.conf.Log != "",
 	}
 	if p.state == StateStarting || p.state == StateRunning {
 		s.PID, s.Port, s.StartedAt = p.pid, p.port, p.startedAt
@@ -120,7 +120,7 @@ func (p *Proc) Target() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(p.port))
 }
 
-// WaitReady は起動中のツールが動き出すのを ctx が終わるまで待ち、転送先を返す。
+// WaitReady は起動中のサーバが動き出すのを ctx が終わるまで待ち、転送先を返す。
 // 起動中でなければ待たずに Target を返す。
 func (p *Proc) WaitReady(ctx context.Context) string {
 	p.mu.Lock()
@@ -140,7 +140,7 @@ func (p *Proc) WaitReady(ctx context.Context) string {
 func (p *Proc) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.tool.Disabled {
+	if p.conf.Disabled {
 		return errors.New("disabled in config")
 	}
 	if p.done != nil {
@@ -224,13 +224,13 @@ func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 
 		failed := err != nil || code == nil || *code != 0
 		switch {
-		case p.tool.Restart == config.RestartNever,
-			p.tool.Restart == config.RestartOnFailure && !failed:
+		case p.conf.Restart == config.RestartNever,
+			p.conf.Restart == config.RestartOnFailure && !failed:
 			if failed {
-				p.logger.Printf("[%s] exited: %v (no restart)", p.tool.Name, err)
+				p.logger.Printf("[%s] exited: %v (no restart)", p.conf.Name, err)
 				p.setState(StateFailed)
 			} else {
-				p.logger.Printf("[%s] exited normally", p.tool.Name)
+				p.logger.Printf("[%s] exited normally", p.conf.Name)
 			}
 			return
 		}
@@ -241,7 +241,7 @@ func (p *Proc) supervise(ctx context.Context, done chan struct{}) {
 		if time.Since(started) > stableAfter {
 			backoff = minBackoff
 		}
-		p.logger.Printf("[%s] exited: %v; restarting in %s", p.tool.Name, err, backoff)
+		p.logger.Printf("[%s] exited: %v; restarting in %s", p.conf.Name, err, backoff)
 		p.setState(StateBackoff)
 		select {
 		case <-ctx.Done():
@@ -285,10 +285,10 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	p.pid = cmd.Process.Pid
 	p.startedAt = time.Now()
 	p.mu.Unlock()
-	p.logger.Printf("[%s] started pid=%d port=%d", p.tool.Name, cmd.Process.Pid, port)
+	p.logger.Printf("[%s] started pid=%d port=%d", p.conf.Name, cmd.Process.Pid, port)
 	if out != nil {
 		fmt.Fprintf(out, "\n=== yard: %s started pid=%d port=%d at %s ===\n",
-			p.tool.Name, cmd.Process.Pid, port, time.Now().Format(time.RFC3339))
+			p.conf.Name, cmd.Process.Pid, port, time.Now().Format(time.RFC3339))
 	}
 
 	exited := make(chan error, 1)
@@ -296,7 +296,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 
 	// ポートが開くまで待つ。
 	readyCh := make(chan bool, 1)
-	waitCtx, stopWait := context.WithTimeout(ctx, p.tool.StartTimeout.Duration)
+	waitCtx, stopWait := context.WithTimeout(ctx, p.conf.StartTimeout.Duration)
 	defer stopWait()
 	go func() { readyCh <- waitPort(waitCtx, port) }()
 
@@ -310,9 +310,9 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 			return p.terminate(tree, exited)
 		}
 		if !ok {
-			p.logger.Printf("[%s] port %d did not open within %s", p.tool.Name, port, p.tool.StartTimeout)
+			p.logger.Printf("[%s] port %d did not open within %s", p.conf.Name, port, p.conf.StartTimeout)
 			p.terminate(tree, exited)
-			return nil, fmt.Errorf("port %d did not open within %s (does the tool listen on {port}?)", port, p.tool.StartTimeout)
+			return nil, fmt.Errorf("port %d did not open within %s (does the server listen on {port}?)", port, p.conf.StartTimeout)
 		}
 	}
 
@@ -320,7 +320,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 	p.setStateLocked(StateRunning)
 	p.lastErr = ""
 	p.mu.Unlock()
-	p.logger.Printf("[%s] ready on port %d", p.tool.Name, port)
+	p.logger.Printf("[%s] ready on port %d", p.conf.Name, port)
 
 	select {
 	case waitErr = <-exited:
@@ -332,7 +332,7 @@ func (p *Proc) runOnce(ctx context.Context) (exitCode *int, err error) {
 
 // terminate は穏当に止め、時間内に終わらなければ強制終了する。
 func (p *Proc) terminate(tree *processTree, exited <-chan error) (*int, error) {
-	p.logger.Printf("[%s] stopping", p.tool.Name)
+	p.logger.Printf("[%s] stopping", p.conf.Name)
 	if err := tree.Interrupt(); err == nil {
 		select {
 		case <-exited:
@@ -341,12 +341,12 @@ func (p *Proc) terminate(tree *processTree, exited <-chan error) (*int, error) {
 		}
 	}
 	if err := tree.Kill(); err != nil {
-		p.logger.Printf("[%s] kill: %v", p.tool.Name, err)
+		p.logger.Printf("[%s] kill: %v", p.conf.Name, err)
 	}
 	select {
 	case <-exited:
 	case <-time.After(stopTimeout):
-		p.logger.Printf("[%s] did not exit after kill", p.tool.Name)
+		p.logger.Printf("[%s] did not exit after kill", p.conf.Name)
 	}
 	return nil, nil
 }
@@ -365,7 +365,7 @@ func exitStatus(cmd *exec.Cmd, err error) (*int, error) {
 // command は置換済みの引数・環境変数で exec.Cmd を作る。
 // 出力先ファイルを開いた場合はそれも返す（呼び出し側で閉じる）。
 func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
-	t := p.tool
+	t := p.conf
 	r := Replacer(t, port)
 
 	args := make([]string, len(t.Args))
@@ -403,7 +403,7 @@ func (p *Proc) command(port int) (*exec.Cmd, io.WriteCloser, error) {
 }
 
 // Replacer は args / env の置換子を返す。
-func Replacer(t config.Tool, port int) *strings.Replacer {
+func Replacer(t config.Server, port int) *strings.Replacer {
 	ps := strconv.Itoa(port)
 	return strings.NewReplacer(
 		"{port}", ps,

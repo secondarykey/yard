@@ -4,7 +4,7 @@
 //
 // yard.ini の例:
 //
-//	[[tool]]
+//	[[server]]
 //	name = "hello"
 //	path = "/hello"
 //	command = "hello.exe"

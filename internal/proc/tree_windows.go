@@ -11,7 +11,7 @@ import (
 // processTree は Windows ではジョブオブジェクトでプロセスツリーをまとめる。
 //
 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE を付けているので、yard が異常終了して
-// ハンドルが閉じられた場合も、ツールとその子プロセスは OS が終了させる。
+// ハンドルが閉じられた場合も、サーバとその子プロセスは OS が終了させる。
 //
 // Windows にはコンソールを持たないプロセスへ穏当に終了を伝える汎用の手段が無い
 // （サービスにはコンソールが無く、GenerateConsoleCtrlEvent が使えない）ため、
@@ -23,8 +23,8 @@ type processTree struct {
 
 func startTree(cmd *exec.Cmd) (*processTree, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// ツールにコンソールを作らせない（出力はファイルか捨てるかのどちらか）。
-		// 別グループにして、yard を Ctrl+C したときにツールへ直接届かないようにする。
+		// サーバにコンソールを作らせない（出力はファイルか捨てるかのどちらか）。
+		// 別グループにして、yard を Ctrl+C したときにサーバへ直接届かないようにする。
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
 		HideWindow:    true,
 	}

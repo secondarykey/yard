@@ -1,4 +1,4 @@
-// yard はイントラ内でツール群を公開するためのプロキシサーバ。
+// yard はイントラ内でサーバ群を公開するためのプロキシサーバ。
 //
 // 設定ファイル（yard.ini）に書いたプログラムを空きポートで起動し、
 // 指定した URI 以下へのリクエストをそのプログラムへ転送する。
@@ -142,7 +142,7 @@ func control(svc service.Service, cmd, cfgPath, logDir string) error {
 //
 // kardianos/service の Uninstall は Windows と systemd では停止しない。
 // Windows では「削除予定」のまま動き続け、systemd では登録が消えたプロセスが
-// ツールごと残る。止められなかったときは登録も外さずにエラーにする。
+// サーバごと残る。止められなかったときは登録も外さずにエラーにする。
 func stopForUninstall(svc service.Service) error {
 	st, err := svc.Status()
 	if err != nil || st != service.StatusRunning {
@@ -205,8 +205,8 @@ func newLogger(svc service.Service, cfg *config.Config) (*log.Logger, func(), er
 		}
 	}
 	flags := log.LstdFlags
-	if cfg.Server.Log != "" {
-		f, err := proc.OpenLog(cfg.Server.Log)
+	if cfg.Yard.Log != "" {
+		f, err := proc.OpenLog(cfg.Yard.Log)
 		if err != nil {
 			return nil, nil, fmt.Errorf("log: %w", err)
 		}
@@ -241,9 +241,9 @@ type program struct {
 // Start はブロックしてはいけない。listen までを同期で行い、
 // ポート競合などの起動失敗をサービスマネージャへ伝える。
 func (p *program) Start(service.Service) error {
-	ln, err := net.Listen("tcp", p.cfg.Server.Addr)
+	ln, err := net.Listen("tcp", p.cfg.Yard.Addr)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", p.cfg.Server.Addr, err)
+		return fmt.Errorf("listen on %s: %w", p.cfg.Yard.Addr, err)
 	}
 
 	srv, err := server.New(p.cfgPath, p.cfg, p.logger)
@@ -256,10 +256,10 @@ func (p *program) Start(service.Service) error {
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          p.logger,
-		// 本文の読み書きには期限を設けない。ツール側の長時間のレスポンス
+		// 本文の読み書きには期限を設けない。サーバ側の長時間のレスポンス
 		// （SSE、WebSocket、大きなダウンロード）を途中で切らないため。
 	}
-	p.logger.Printf("listening on %s (config: %s, logdir: %s, %d tools)", ln.Addr(), p.cfgPath, p.cfg.LogDir, len(p.cfg.Tools))
+	p.logger.Printf("listening on %s (config: %s, logdir: %s, %d servers)", ln.Addr(), p.cfgPath, p.cfg.LogDir, len(p.cfg.Servers))
 	go func() {
 		if err := p.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			p.logger.Printf("serve: %v", err)
@@ -285,7 +285,7 @@ func (p *program) Stop(service.Service) error {
 }
 
 func usage() {
-	fmt.Fprintf(flag.CommandLine.Output(), `yard - ツール群をイントラ内で公開するプロキシサーバ
+	fmt.Fprintf(flag.CommandLine.Output(), `yard - サーバ群をイントラ内で公開するプロキシサーバ
 
 usage:
   yard [flags]              前面で起動する

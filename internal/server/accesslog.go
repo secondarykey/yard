@@ -13,7 +13,7 @@ import (
 	"yard/internal/proc"
 )
 
-// accessLog は Combined Log Format に、処理時間（ミリ秒）と転送先ツール名を足した形式で書く。
+// accessLog は Combined Log Format に、処理時間（ミリ秒）と転送先サーバ名を足した形式で書く。
 //
 //	127.0.0.1 - - [07/Nov/2026:17:00:00 +0900] "GET /memo/ HTTP/1.1" 200 1234 "-" "curl/8" 12 memo
 type accessLog struct {
@@ -38,11 +38,11 @@ func (a *accessLog) Close() {
 	}
 }
 
-type toolKey struct{}
+type targetKey struct{}
 
-// setTool はアクセスログに出す転送先ツール名を記録する。
-func setTool(r *http.Request, name string) {
-	if p, ok := r.Context().Value(toolKey{}).(*string); ok {
+// setTarget はアクセスログに出す転送先サーバ名を記録する。
+func setTarget(r *http.Request, name string) {
+	if p, ok := r.Context().Value(targetKey{}).(*string); ok {
 		*p = name
 	}
 }
@@ -58,8 +58,8 @@ func (s *Server) logAccess(next http.Handler) http.Handler {
 		}
 
 		start := time.Now()
-		tool := new(string)
-		r = r.WithContext(context.WithValue(r.Context(), toolKey{}, tool))
+		target := new(string)
+		r = r.WithContext(context.WithValue(r.Context(), targetKey{}, target))
 		rec := &recorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 
@@ -82,7 +82,7 @@ func (s *Server) logAccess(next http.Handler) http.Handler {
 			orDash(r.Referer()),
 			orDash(r.UserAgent()),
 			time.Since(start).Milliseconds(),
-			orDash(*tool),
+			orDash(*target),
 		)
 	})
 }

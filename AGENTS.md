@@ -5,8 +5,12 @@ yard の開発の概要。利用方法・設定・URL は [README.md](README.md)
 
 ## 何を作っているか
 
-イントラ内でツール群を公開するプロキシサーバ。設定に書いたプログラムを空きポートで起動・監視し、
+イントラ内でサーバ群を公開するプロキシサーバ。設定に書いたプログラムを空きポートで起動・監視し、
 URI の接頭辞で振り分けて転送する。`/.yard` が管理画面。配布物は実行ファイル1つ。
+
+**用語:** yard が起動して公開するものは「サーバ」と呼ぶ（設定は `[[server]]`、型は `config.Server`、
+URL は `/.yard/servers/...`）。登録されるのがツールとは限らないので「ツール」とは呼ばない。
+yard 自身の待ち受けとログの設定は `[yard]`（`config.Yard`）。`_docs/spec.md` は原文なので書き換えない。
 
 **Go 側の外部依存は `kardianos/service`、`BurntSushi/toml`、`golang.org/x/sys` のみ。**
 ルータは `net/http.ServeMux`（メソッド付きパターン・ワイルドカード）、
@@ -17,12 +21,12 @@ URI の接頭辞で振り分けて転送する。`/.yard` が管理画面。配�
 ```
 main.go                 エントリポイント、サブコマンド、サービス制御、ロガー
 internal/config         yard.ini の読み込み・検証・相対パス解決・admin.allow
-internal/proc           ツールのプロセス管理（Proc: 1ツール、Manager: 全体と最長一致）
+internal/proc           サーバのプロセス管理（Proc: 1サーバ、Manager: 全体と最長一致）
   tree_windows.go       ジョブオブジェクトでプロセスツリーをまとめる
   tree_unix.go          プロセスグループでまとめる
 internal/server         HTTP（転送・アクセスログ・/.yard）
   templates/            管理画面の HTML
-_cmd/hello              動作確認用のツール
+_cmd/hello              動作確認用のサーバ
 ```
 
 ## 壊しやすい決まり
@@ -41,12 +45,12 @@ _cmd/hello              動作確認用のツール
 - **Proc の状態遷移は `setStateLocked` を通す。** `starting` の間だけ `ready` チャネルが開いていて、
   転送側（`WaitReady`）はそれを待つ。`p.state` を直接書き換えると待ちが解けなくなる。
   `Start()` は goroutine を起こす前に同期で `starting` にする（直後のリクエストを待たせるため）。
-- **ツールの出力は `*os.File` を直接渡す（パイプにしない）。** パイプにすると、孫プロセスが
+- **サーバの出力は `*os.File` を直接渡す（パイプにしない）。** パイプにすると、孫プロセスが
   パイプを掴んだままのとき `cmd.Wait` が返らない。
 - **停止はプロセスツリー単位。** Windows はジョブオブジェクト（KILL_ON_JOB_CLOSE）なので、
-  yard が強制終了されてもツールは残らない。Unix はプロセスグループへ SIGTERM → SIGKILL。
-- **設定の反映（`Manager.Apply`）は差分で行う。** `config.Tool` が `reflect.DeepEqual` で等しいツールは
-  動かしたまま。`config.Tool` に比較できない値（関数など）を持たせない。
+  yard が強制終了されてもサーバは残らない。Unix はプロセスグループへ SIGTERM → SIGKILL。
+- **設定の反映（`Manager.Apply`）は差分で行う。** `config.Server` が `reflect.DeepEqual` で等しいサーバは
+  動かしたまま。`config.Server` に比較できない値（関数など）を持たせない。
 - **設定の保存は検証してから。** `SaveConfig` は `config.Parse` が通ったときだけ一時ファイル経由で置き換える。
 - `http.Server` には `ReadHeaderTimeout` のみ設定する。SSE / WebSocket / 大きなレスポンスを切らないため。
 - サービス: `Start` はブロックしない（listen までを同期で行い失敗を SCM に返す）、`Stop` は素早く返す。
@@ -61,14 +65,14 @@ go test ./...
 GOOS=linux go vet ./... && GOOS=darwin go vet ./...
 ```
 
-`internal/server` のテストは、テストバイナリ自身を `YARD_TEST_HELPER=1` で起動してツール役にしている
+`internal/server` のテストは、テストバイナリ自身を `YARD_TEST_HELPER=1` で起動してサーバ役にしている
 （`TestMain`）。実際にプロセスを起動・再起動するため数秒かかる。
 
 ## 既知の課題
 
-- ツールのログ（`log`）にローテーションが無い。
-- Windows ではツールへ穏当な停止を伝える手段が無く、停止は即時終了になる。
+- サーバのログ（`log`）にローテーションが無い。
+- Windows ではサーバへ穏当な停止を伝える手段が無く、停止は即時終了になる。
 - 起動直後〜ジョブオブジェクトに入れるまでの間に作られた孫プロセスは漏れうる（Windows）。
-- Unix で yard が SIGKILL された場合、ツールが残る（pdeathsig を使っていない）。
+- Unix で yard が SIGKILL された場合、サーバが残る（pdeathsig を使っていない）。
 - `strip_prefix` では HTML 内の絶対パスや Cookie の Path は書き換えない。
 - サービス登録は Windows・Linux・macOS とも実機未確認（_docs/service.md）。

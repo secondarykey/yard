@@ -1,22 +1,22 @@
-{{template "head" "ツール"}}
+{{template "head" "サーバ"}}
 {{template "nav" .Page}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
   {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}
   <div class="bar">
-    <h1>ツール</h1>
+    <h1>サーバ</h1>
     <span class="muted mono">{{.Addr}}</span>
     <span class="spacer"></span>
     <form method="post" action="{{admin}}/reload"><button>設定を再読込</button></form>
   </div>
   <div class="panel">
-  {{if .Tools}}
+  {{if .Servers}}
   <table>
     <thead><tr>
       <th>名前</th><th>パス</th><th>状態</th><th>PID</th><th>ポート</th><th>稼働</th><th>再起動</th><th>エラー</th><th></th>
     </tr></thead>
     <tbody>
-    {{range .Tools}}
+    {{range .Servers}}
     <tr data-name="{{.Name}}">
       <td><strong>{{.Name}}</strong></td>
       <td class="mono"><a href="{{.Path}}">{{.Path}}</a></td>
@@ -28,10 +28,10 @@
       <td class="err" data-f="error">{{.Error}}</td>
       <td>
         <div class="actions">
-          <form method="post" action="{{admin}}/tools/{{.Name}}/start"><button data-a="start">起動</button></form>
-          <form method="post" action="{{admin}}/tools/{{.Name}}/stop"><button data-a="stop">停止</button></form>
-          <form method="post" action="{{admin}}/tools/{{.Name}}/restart"><button data-a="restart">再起動</button></form>
-          {{if .Log}}<a class="btn" href="{{admin}}/tools/{{.Name}}/log">ログ</a>{{end}}
+          <form method="post" action="{{admin}}/servers/{{.Name}}/start"><button data-a="start">起動</button></form>
+          <form method="post" action="{{admin}}/servers/{{.Name}}/stop"><button data-a="stop">停止</button></form>
+          <form method="post" action="{{admin}}/servers/{{.Name}}/restart"><button data-a="restart">再起動</button></form>
+          {{if .Log}}<a class="btn" href="{{admin}}/servers/{{.Name}}/log">ログ</a>{{end}}
         </div>
       </td>
     </tr>
@@ -39,7 +39,7 @@
     </tbody>
   </table>
   {{else}}
-  <div class="empty">ツールが登録されていません</div>
+  <div class="empty">サーバが登録されていません</div>
   {{end}}
   </div>
 </main>
@@ -70,11 +70,11 @@
   };
   const refresh = async () => {
     try {
-      const res = await fetch("{{admin}}/api/tools", { cache: "no-store" });
+      const res = await fetch("{{admin}}/api/servers", { cache: "no-store" });
       if (!res.ok) return;
-      const tools = await res.json();
-      if (tools.length !== document.querySelectorAll("tr[data-name]").length) { location.reload(); return; }
-      for (const t of tools) {
+      const servers = await res.json();
+      if (servers.length !== document.querySelectorAll("tr[data-name]").length) { location.reload(); return; }
+      for (const t of servers) {
         const row = document.querySelector('tr[data-name="' + CSS.escape(t.name) + '"]');
         if (!row) { location.reload(); return; }
         const f = n => row.querySelector("[data-f=" + n + "]");

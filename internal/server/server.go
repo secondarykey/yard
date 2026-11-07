@@ -1,4 +1,4 @@
-// Package server は yard の HTTP 側。ツールへの転送（proxy.go）、
+// Package server は yard の HTTP 側。サーバへの転送（proxy.go）、
 // アクセスログ（accesslog.go）、管理画面 /.yard（admin.go）を持つ。
 //
 // 転送ヘッダ（X-Forwarded-For など）は接続元の判定に使わない。
@@ -38,9 +38,9 @@ type Server struct {
 	saveMu sync.Mutex
 }
 
-// New は設定を反映し、ツールを起動する。
+// New は設定を反映し、サーバを起動する。
 func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error) {
-	access, err := openAccessLog(cfg.Server.AccessLog)
+	access, err := openAccessLog(cfg.Yard.AccessLog)
 	if err != nil {
 		return nil, fmt.Errorf("access log: %w", err)
 	}
@@ -50,7 +50,7 @@ func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error
 		mgr:    proc.NewManager(logger),
 		cfg:    cfg,
 		access: access,
-		addr:   cfg.Server.Addr,
+		addr:   cfg.Yard.Addr,
 		transport: &http.Transport{
 			Proxy: nil, // 転送先はループバックなので、環境変数のプロキシ設定を使わない
 			DialContext: (&net.Dialer{
@@ -62,7 +62,7 @@ func New(cfgPath string, cfg *config.Config, logger *log.Logger) (*Server, error
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
-	s.mgr.Apply(cfg.Tools)
+	s.mgr.Apply(cfg.Servers)
 	return s, nil
 }
 
@@ -76,7 +76,7 @@ func (s *Server) Config() *config.Config {
 // Manager はプロセス管理を返す。
 func (s *Server) Manager() *proc.Manager { return s.mgr }
 
-// Close は全ツールを止め、ログを閉じる。
+// Close は全サーバを止め、ログを閉じる。
 func (s *Server) Close() {
 	s.mgr.StopAll()
 	s.transport.CloseIdleConnections()
@@ -122,19 +122,19 @@ func (s *Server) SaveConfig(data []byte) (notices []string, err error) {
 func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	var notices []string
 	old := s.Config()
-	if cfg.Server.Addr != s.addr {
-		notices = append(notices, fmt.Sprintf("server.addr (%s → %s) は yard の再起動後に反映されます", s.addr, cfg.Server.Addr))
+	if cfg.Yard.Addr != s.addr {
+		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) は yard の再起動後に反映されます", s.addr, cfg.Yard.Addr))
 	}
-	if cfg.Server.Log != old.Server.Log {
-		notices = append(notices, "server.log は yard の再起動後に反映されます")
+	if cfg.Yard.Log != old.Yard.Log {
+		notices = append(notices, "yard.log は yard の再起動後に反映されます")
 	}
 	if cfg.Service != old.Service {
 		notices = append(notices, "[service] はサービスの再登録（uninstall → install）で反映されます")
 	}
 
 	var access *accessLog
-	if cfg.Server.AccessLog != old.Server.AccessLog {
-		a, err := openAccessLog(cfg.Server.AccessLog)
+	if cfg.Yard.AccessLog != old.Yard.AccessLog {
+		a, err := openAccessLog(cfg.Yard.AccessLog)
 		if err != nil {
 			return nil, fmt.Errorf("access log: %w", err)
 		}
@@ -149,8 +149,8 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	}
 	s.mu.Unlock()
 
-	s.mgr.Apply(cfg.Tools)
-	s.logger.Printf("config applied (%d tools)", len(cfg.Tools))
+	s.mgr.Apply(cfg.Servers)
+	s.logger.Printf("config applied (%d servers)", len(cfg.Servers))
 	return notices, nil
 }
 
@@ -158,7 +158,7 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 func (s *Server) Handler() http.Handler {
 	admin := s.adminHandler()
 	return s.logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// ".." などを含むパスは、どのツールに属するかが曖昧になるので正規化してから扱う。
+		// ".." などを含むパスは、どのサーバに属するかが曖昧になるので正規化してから扱う。
 		if r.Method != http.MethodConnect {
 			if p := cleanPath(r.URL.Path); p != r.URL.Path {
 				u := *r.URL
@@ -207,9 +207,9 @@ func writeFileAtomic(name string, data []byte) error {
 	return os.Rename(tmp.Name(), name)
 }
 
-// waitReady は起動中のツールを、リクエストが続く間・起動待ち時間の範囲で待つ。
+// waitReady は起動中のサーバを、リクエストが続く間・起動待ち時間の範囲で待つ。
 func waitReady(ctx context.Context, p *proc.Proc) string {
-	ctx, cancel := context.WithTimeout(ctx, p.Tool().StartTimeout.Duration)
+	ctx, cancel := context.WithTimeout(ctx, p.Config().StartTimeout.Duration)
 	defer cancel()
 	return p.WaitReady(ctx)
 }

@@ -16,7 +16,7 @@ import (
 	"yard/internal/proc"
 )
 
-// テストバイナリ自身をツールとして起動する。YARD_TEST_HELPER=1 のときは
+// テストバイナリ自身をサーバとして起動する。YARD_TEST_HELPER=1 のときは
 // テストを走らせず、YARD_PORT で待ち受ける小さなサーバになる。
 func TestMain(m *testing.M) {
 	if os.Getenv("YARD_TEST_HELPER") == "1" {
@@ -48,15 +48,15 @@ func helper() {
 	}
 }
 
-func newTestServer(t *testing.T, tools string) (*Server, *httptest.Server, string) {
+func newTestServer(t *testing.T, servers string) (*Server, *httptest.Server, string) {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	src := strings.ReplaceAll(tools, "EXE", strings.ReplaceAll(exe, `\`, `\\`))
-	src = "[server]\naccess_log = \"access.log\"\n" + src
+	src := strings.ReplaceAll(servers, "EXE", strings.ReplaceAll(exe, `\`, `\\`))
+	src = "[yard]\naccess_log = \"access.log\"\n" + src
 	path := filepath.Join(dir, config.FileName)
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func newTestServer(t *testing.T, tools string) (*Server, *httptest.Server, strin
 	return s, ts, dir
 }
 
-const echoTool = `
-[[tool]]
+const echoServer = `
+[[server]]
 name = "echo"
 path = "/echo"
 command = "EXE"
@@ -116,7 +116,7 @@ func waitState(t *testing.T, p *proc.Proc, want proc.State) proc.Status {
 }
 
 func TestProxy(t *testing.T) {
-	s, ts, dir := newTestServer(t, echoTool)
+	s, ts, dir := newTestServer(t, echoServer)
 
 	// 起動中でも最初のリクエストはポートが開くまで待たされる。
 	code, body, _ := get(t, ts.URL+"/echo/a/b?q=1")
@@ -142,14 +142,14 @@ func TestProxy(t *testing.T) {
 	if code, _, _ := get(t, ts.URL+"/echox"); code != 404 {
 		t.Errorf("/echox = %d", code)
 	}
-	// "/" のツールが無ければルートも 404
+	// "/" のサーバが無ければルートも 404
 	if code, _, _ := get(t, ts.URL+"/"); code != 404 {
 		t.Errorf("/ = %d", code)
 	}
 
-	// ツールの出力とアクセスログ
+	// サーバの出力とアクセスログ
 	if b, _ := os.ReadFile(filepath.Join(dir, "echo.log")); !strings.Contains(string(b), "helper up") {
-		t.Errorf("tool log = %q", b)
+		t.Errorf("server log = %q", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "access.log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
@@ -158,7 +158,7 @@ func TestProxy(t *testing.T) {
 }
 
 func TestStripPrefix(t *testing.T) {
-	_, ts, _ := newTestServer(t, strings.Replace(echoTool, "start_timeout", "strip_prefix = true\nstart_timeout", 1))
+	_, ts, _ := newTestServer(t, strings.Replace(echoServer, "start_timeout", "strip_prefix = true\nstart_timeout", 1))
 
 	code, _, h := get(t, ts.URL+"/echo?x=1")
 	if code != http.StatusMovedPermanently || h.Get("Location") != "/echo/?x=1" {
@@ -173,7 +173,7 @@ func TestStripPrefix(t *testing.T) {
 }
 
 func TestRestartOnFailure(t *testing.T) {
-	s, ts, _ := newTestServer(t, echoTool)
+	s, ts, _ := newTestServer(t, echoServer)
 	p, _ := s.mgr.Get("echo")
 	first := waitState(t, p, proc.StateRunning)
 
@@ -198,27 +198,27 @@ func TestRestartOnFailure(t *testing.T) {
 }
 
 func TestAdmin(t *testing.T) {
-	s, ts, dir := newTestServer(t, echoTool)
+	s, ts, dir := newTestServer(t, echoServer)
 	p, _ := s.mgr.Get("echo")
 	waitState(t, p, proc.StateRunning)
 
 	// 停止すると 503、生死確認も 503
-	res, err := http.Post(ts.URL+"/.yard/api/tools/echo/stop", "", nil)
+	res, err := http.Post(ts.URL+"/.yard/api/servers/echo/stop", "", nil)
 	if err != nil || res.StatusCode != 200 {
 		t.Fatalf("stop: %v %v", res, err)
 	}
 	if code, _, _ := get(t, ts.URL+"/echo/"); code != http.StatusServiceUnavailable {
-		t.Errorf("stopped tool = %d", code)
+		t.Errorf("stopped server = %d", code)
 	}
 	if code, _, _ := get(t, ts.URL+"/.yard/health/echo"); code != http.StatusServiceUnavailable {
-		t.Errorf("health of stopped tool = %d", code)
+		t.Errorf("health of stopped server = %d", code)
 	}
 	if code, body, _ := get(t, ts.URL+"/.yard/health"); code != 200 || !strings.Contains(body, `"stopped"`) {
 		t.Errorf("health = %d %s", code, body)
 	}
 
 	// 画面
-	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/tools/echo/log"} {
+	for _, u := range []string{"/.yard/", "/.yard/config", "/.yard/servers/echo/log"} {
 		if code, body, _ := get(t, ts.URL+u); code != 200 || !strings.Contains(body, "<html") {
 			t.Errorf("%s = %d", u, code)
 		}
@@ -230,7 +230,7 @@ func TestAdmin(t *testing.T) {
 	// 不正な設定は保存しない
 	path := filepath.Join(dir, config.FileName)
 	before, _ := os.ReadFile(path)
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[[tool]]\nname = 1\n"))
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[[server]]\nname = 1\n"))
 	res, err = http.DefaultClient.Do(req)
 	if err != nil || res.StatusCode != http.StatusBadRequest {
 		t.Errorf("invalid config: %v %v", res, err)
@@ -239,14 +239,14 @@ func TestAdmin(t *testing.T) {
 		t.Error("invalid config was written")
 	}
 
-	// 正しい設定は保存して反映する（ツールが消える）
-	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[server]\n"))
+	// 正しい設定は保存して反映する（サーバが消える）
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/.yard/api/config", strings.NewReader("[yard]\n"))
 	res, err = http.DefaultClient.Do(req)
 	if err != nil || res.StatusCode != 200 {
 		t.Fatalf("valid config: %v %v", res, err)
 	}
 	if _, ok := s.mgr.Get("echo"); ok {
-		t.Error("tool should be removed")
+		t.Error("server should be removed")
 	}
 
 	// 別サイトからのフォーム送信は拒否する
@@ -263,9 +263,9 @@ func TestAdminRestrictedByRemoteAddr(t *testing.T) {
 	h := s.Handler()
 
 	for path, want := range map[string]int{
-		"/.yard/":          http.StatusForbidden,
-		"/.yard/api/tools": http.StatusForbidden,
-		"/.yard/health":    http.StatusOK,
+		"/.yard/":            http.StatusForbidden,
+		"/.yard/api/servers": http.StatusForbidden,
+		"/.yard/health":      http.StatusOK,
 	} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		r.RemoteAddr = "10.1.2.3:4567"

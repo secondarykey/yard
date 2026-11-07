@@ -41,16 +41,16 @@ const logTailBytes = 256 << 10
 
 // 管理画面の URL 構成（すべて /.yard 以下）。
 //
-//	GET  /health                    yard の生死と各ツールの状態（接続元制限なし）
-//	GET  /health/{name}             ツールが running なら 200、そうでなければ 503（接続元制限なし）
-//	GET  /                          ツール一覧
-//	POST /tools/{name}/{action}     start / stop / restart
-//	GET  /tools/{name}/log          ツールの出力（末尾）
+//	GET  /health                    yard の生死と各サーバの状態（接続元制限なし）
+//	GET  /health/{name}             サーバが running なら 200、そうでなければ 503（接続元制限なし）
+//	GET  /                          サーバ一覧
+//	POST /servers/{name}/{action}     start / stop / restart
+//	GET  /servers/{name}/log          サーバの出力（末尾）
 //	GET  /config                    設定ファイルの編集
 //	POST /config                    検証して保存し、反映する
 //	POST /reload                    設定ファイルを読み直して反映する
-//	GET  /api/tools                 JSON
-//	POST /api/tools/{name}/{action} JSON
+//	GET  /api/servers                 JSON
+//	POST /api/servers/{name}/{action} JSON
 //	POST /api/reload                JSON
 //	GET  /api/config                設定ファイルの本文
 //	PUT  /api/config                検証して保存し、反映する
@@ -59,13 +59,13 @@ func (s *Server) adminHandler() http.Handler {
 
 	priv := http.NewServeMux()
 	priv.HandleFunc("GET "+a+"/{$}", s.handleDashboard)
-	priv.HandleFunc("POST "+a+"/tools/{name}/{action}", s.handleAction)
-	priv.HandleFunc("GET "+a+"/tools/{name}/log", s.handleLog)
+	priv.HandleFunc("POST "+a+"/servers/{name}/{action}", s.handleAction)
+	priv.HandleFunc("GET "+a+"/servers/{name}/log", s.handleLog)
 	priv.HandleFunc("GET "+a+"/config", s.handleConfigPage)
 	priv.HandleFunc("POST "+a+"/config", s.handleConfigSave)
 	priv.HandleFunc("POST "+a+"/reload", s.handleReload)
-	priv.HandleFunc("GET "+a+"/api/tools", s.apiTools)
-	priv.HandleFunc("POST "+a+"/api/tools/{name}/{action}", s.apiAction)
+	priv.HandleFunc("GET "+a+"/api/servers", s.apiServers)
+	priv.HandleFunc("POST "+a+"/api/servers/{name}/{action}", s.apiAction)
 	priv.HandleFunc("POST "+a+"/api/reload", s.apiReload)
 	priv.HandleFunc("GET "+a+"/api/config", s.apiConfigGet)
 	priv.HandleFunc("PUT "+a+"/api/config", s.apiConfigPut)
@@ -82,7 +82,7 @@ func (s *Server) adminHandler() http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+a+"/health", s.handleHealth)
-	mux.HandleFunc("GET "+a+"/health/{name}", s.handleHealthTool)
+	mux.HandleFunc("GET "+a+"/health/{name}", s.handleHealthServer)
 	mux.Handle(a+"/", s.restrict(cop.Handler(priv)))
 	return mux
 }
@@ -104,22 +104,22 @@ func (s *Server) restrict(next http.Handler) http.Handler {
 // ---- 生死確認 ----
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	type tool struct {
+	type server struct {
 		Name  string     `json:"name"`
 		Path  string     `json:"path"`
 		State proc.State `json:"state"`
 	}
-	var tools []tool
+	var servers []server
 	for _, st := range s.mgr.Statuses() {
-		tools = append(tools, tool{st.Name, st.Path, st.State})
+		servers = append(servers, server{st.Name, st.Path, st.State})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "tools": tools})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "servers": servers})
 }
 
-func (s *Server) handleHealthTool(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealthServer(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.mgr.Get(r.PathValue("name"))
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown tool"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown server"})
 		return
 	}
 	st := p.Status()
@@ -134,7 +134,7 @@ func (s *Server) handleHealthTool(w http.ResponseWriter, r *http.Request) {
 
 type dashboardData struct {
 	Page    string
-	Tools   []proc.Status
+	Servers []proc.Status
 	Addr    string
 	Config  string
 	Notices []string
@@ -143,8 +143,8 @@ type dashboardData struct {
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "dashboard.html", dashboardData{
-		Page:    "tools",
-		Tools:   s.mgr.Statuses(),
+		Page:    "servers",
+		Servers: s.mgr.Statuses(),
 		Addr:    s.addr,
 		Config:  s.path,
 		Notices: r.URL.Query()["notice"],
@@ -193,8 +193,8 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
-	t := p.Tool()
-	d := logData{Page: "tools", Name: t.Name, File: t.Log}
+	t := p.Config()
+	d := logData{Page: "servers", Name: t.Name, File: t.Log}
 	if t.Log == "" {
 		d.Error = "log is not configured"
 	} else if text, truncated, err := tail(t.Log, logTailBytes); err != nil {
@@ -244,7 +244,7 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 
 // ---- JSON API ----
 
-func (s *Server) apiTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) apiServers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.mgr.Statuses())
 }
 
@@ -252,7 +252,7 @@ func (s *Server) apiAction(w http.ResponseWriter, r *http.Request) {
 	st, err := s.doAction(r.PathValue("name"), r.PathValue("action"))
 	if err != nil {
 		code := http.StatusBadRequest
-		if errors.Is(err, errUnknownTool) {
+		if errors.Is(err, errUnknownServer) {
 			code = http.StatusNotFound
 		}
 		writeJSON(w, code, map[string]any{"error": err.Error()})
@@ -267,7 +267,7 @@ func (s *Server) apiReload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"notices": notices, "tools": s.mgr.Statuses()})
+	writeJSON(w, http.StatusOK, map[string]any{"notices": notices, "servers": s.mgr.Statuses()})
 }
 
 func (s *Server) apiConfigGet(w http.ResponseWriter, r *http.Request) {
@@ -296,12 +296,12 @@ func (s *Server) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 
 // ---- 共通 ----
 
-var errUnknownTool = errors.New("unknown tool")
+var errUnknownServer = errors.New("unknown server")
 
 func (s *Server) doAction(name, action string) (proc.Status, error) {
 	p, ok := s.mgr.Get(name)
 	if !ok {
-		return proc.Status{}, fmt.Errorf("%w: %s", errUnknownTool, name)
+		return proc.Status{}, fmt.Errorf("%w: %s", errUnknownServer, name)
 	}
 	var err error
 	switch action {

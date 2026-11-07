@@ -10,7 +10,7 @@ import (
 func TestParseDefaults(t *testing.T) {
 	dir, logDir := t.TempDir(), t.TempDir()
 	c, err := Parse([]byte("\xef\xbb\xbf"+`
-[[tool]]
+[[server]]
 name = "memo"
 path = "/memo/"
 command = "bin/memo"
@@ -20,24 +20,24 @@ log = "logs/memo.log"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Server.Addr != ":8080" {
-		t.Errorf("addr = %q", c.Server.Addr)
+	if c.Yard.Addr != ":8080" {
+		t.Errorf("addr = %q", c.Yard.Addr)
 	}
-	tool := c.Tools[0]
-	if tool.Path != "/memo" {
-		t.Errorf("path = %q", tool.Path)
+	sv := c.Servers[0]
+	if sv.Path != "/memo" {
+		t.Errorf("path = %q", sv.Path)
 	}
-	if tool.Command != filepath.Join(dir, "bin/memo") {
-		t.Errorf("command = %q", tool.Command)
+	if sv.Command != filepath.Join(dir, "bin/memo") {
+		t.Errorf("command = %q", sv.Command)
 	}
-	if tool.Dir != dir {
-		t.Errorf("dir = %q", tool.Dir)
+	if sv.Dir != dir {
+		t.Errorf("dir = %q", sv.Dir)
 	}
-	if tool.Log != filepath.Join(logDir, "logs/memo.log") {
-		t.Errorf("log = %q", tool.Log)
+	if sv.Log != filepath.Join(logDir, "logs/memo.log") {
+		t.Errorf("log = %q", sv.Log)
 	}
-	if tool.Restart != RestartOnFailure || tool.StartTimeout.Duration != 30*time.Second {
-		t.Errorf("restart = %q, timeout = %s", tool.Restart, tool.StartTimeout)
+	if sv.Restart != RestartOnFailure || sv.StartTimeout.Duration != 30*time.Second {
+		t.Errorf("restart = %q, timeout = %s", sv.Restart, sv.StartTimeout)
 	}
 	if !c.Admin.Allowed("127.0.0.1:5000") || !c.Admin.Allowed("[::1]:5000") || c.Admin.Allowed("10.0.0.1:5000") {
 		t.Error("default admin.allow should be loopback only")
@@ -46,7 +46,7 @@ log = "logs/memo.log"
 
 func TestParseCommandName(t *testing.T) {
 	c, err := Parse([]byte(`
-[[tool]]
+[[server]]
 name = "a"
 path = "/a"
 command = "python"
@@ -55,53 +55,59 @@ start_timeout = "5s"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Tools[0].Command != "python" {
-		t.Errorf("command without separator should be kept for PATH lookup: %q", c.Tools[0].Command)
+	if c.Servers[0].Command != "python" {
+		t.Errorf("command without separator should be kept for PATH lookup: %q", c.Servers[0].Command)
 	}
-	if c.Tools[0].StartTimeout.Duration != 5*time.Second {
-		t.Errorf("start_timeout = %s", c.Tools[0].StartTimeout)
+	if c.Servers[0].StartTimeout.Duration != 5*time.Second {
+		t.Errorf("start_timeout = %s", c.Servers[0].StartTimeout)
 	}
 }
 
 func TestParseErrors(t *testing.T) {
 	cases := map[string]string{
 		"unknown key": `
-[server]
+[yard]
 adr = ":80"`,
-		"duplicate name": `
+		"[server] は [yard] に": `
+[server]
+addr = ":80"`,
+		"[[tool]] は [[server]] に": `
 [[tool]]
+name = "a"`,
+		"duplicate name": `
+[[server]]
 name = "a"
 path = "/a"
 command = "x"
-[[tool]]
+[[server]]
 name = "a"
 path = "/b"
 command = "x"`,
 		"is also used by": `
-[[tool]]
+[[server]]
 name = "a"
 path = "/a"
 command = "x"
-[[tool]]
+[[server]]
 name = "b"
 path = "/a/"
 command = "x"`,
 		"reserved": `
-[[tool]]
+[[server]]
 name = "a"
 path = "/.yard/x"
 command = "x"`,
 		"must start with": `
-[[tool]]
+[[server]]
 name = "a"
 path = "a"
 command = "x"`,
 		"command is required": `
-[[tool]]
+[[server]]
 name = "a"
 path = "/a"`,
 		"restart must be": `
-[[tool]]
+[[server]]
 name = "a"
 path = "/a"
 command = "x"

@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ import (
 // FileName は設定ファイルの既定の名前。
 const FileName = "yard.ini"
 
-// AdminPath は yard 自身の管理画面の URL。ツールの path には使えない。
+// AdminPath は yard 自身の管理画面の URL。サーバの path には使えない。
 const AdminPath = "/.yard"
 
 // 再起動ポリシー。
@@ -45,10 +46,10 @@ const (
 
 // Config は yard.ini 全体。
 type Config struct {
-	Server  Server  `toml:"server"`
-	Admin   Admin   `toml:"admin"`
-	Service Service `toml:"service"`
-	Tools   []Tool  `toml:"tool"`
+	Yard    Yard     `toml:"yard"`
+	Admin   Admin    `toml:"admin"`
+	Service Service  `toml:"service"`
+	Servers []Server `toml:"server"`
 
 	// Dir は設定ファイルのあるディレクトリ（絶対パス）。command / dir の相対パスの基準。
 	Dir string `toml:"-"`
@@ -56,8 +57,8 @@ type Config struct {
 	LogDir string `toml:"-"`
 }
 
-// Server は待ち受けとログの設定。
-type Server struct {
+// Yard は yard 自身の待ち受けとログの設定。
+type Yard struct {
 	Addr      string `toml:"addr"`       // 待ち受けアドレス。既定 ":8080"
 	AccessLog string `toml:"access_log"` // アクセスログの出力先。空なら出力しない
 	Log       string `toml:"log"`        // yard 自身のログの出力先。空なら標準エラー（サービス時はOSのログ）
@@ -85,8 +86,8 @@ type Service struct {
 	UserService bool `toml:"user_service"`
 }
 
-// Tool は yard が起動して公開する1つのプログラム。
-type Tool struct {
+// Server は yard が起動して公開する1つのサーバ（プログラム）。
+type Server struct {
 	Name    string   `toml:"name"`    // 識別名（必須・一意）
 	Path    string   `toml:"path"`    // 公開する URI の接頭辞（必須・一意）。例 "/memo"
 	Command string   `toml:"command"` // 実行ファイル（必須）
@@ -136,14 +137,14 @@ func Parse(data []byte, dir, logDir string) (*Config, error) {
 	var c Config
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
-		return nil, err
+		return nil, withLegacyHint(err, data)
 	}
 	if und := md.Undecoded(); len(und) > 0 {
 		keys := make([]string, len(und))
 		for i, k := range und {
 			keys[i] = k.String()
 		}
-		return nil, fmt.Errorf("unknown keys: %s", strings.Join(keys, ", "))
+		return nil, withLegacyHint(fmt.Errorf("unknown keys: %s", strings.Join(keys, ", ")), data)
 	}
 	c.Dir = dir
 	c.LogDir = logDir
@@ -153,17 +154,28 @@ func Parse(data []byte, dir, logDir string) (*Config, error) {
 	return &c, nil
 }
 
+var legacySection = regexp.MustCompile(`(?m)^\s*(\[server\]|\[\[tool\]\])`)
+
+// withLegacyHint は、旧形式（[server] と [[tool]]）の設定ファイルなら書き換え方を添える。
+// 旧形式の [server] は新形式の [[server]] と型が衝突し、TOML のエラーだけでは原因が分からない。
+func withLegacyHint(err error, data []byte) error {
+	if !legacySection.Match(data) {
+		return err
+	}
+	return fmt.Errorf("%w\n(旧形式の設定です。[server] は [yard] に、[[tool]] は [[server]] に書き換えてください)", err)
+}
+
 func (c *Config) normalize() error {
 	var errs []error
 
-	if c.Server.Addr == "" {
-		c.Server.Addr = ":8080"
+	if c.Yard.Addr == "" {
+		c.Yard.Addr = ":8080"
 	}
-	if _, _, err := net.SplitHostPort(c.Server.Addr); err != nil {
-		errs = append(errs, fmt.Errorf("server.addr: %w", err))
+	if _, _, err := net.SplitHostPort(c.Yard.Addr); err != nil {
+		errs = append(errs, fmt.Errorf("yard.addr: %w", err))
 	}
-	c.Server.AccessLog = c.LogPath(c.Server.AccessLog)
-	c.Server.Log = c.LogPath(c.Server.Log)
+	c.Yard.AccessLog = c.LogPath(c.Yard.AccessLog)
+	c.Yard.Log = c.LogPath(c.Yard.Log)
 
 	if err := c.Admin.parse(); err != nil {
 		errs = append(errs, err)
@@ -176,16 +188,16 @@ func (c *Config) normalize() error {
 		c.Service.DisplayName = c.Service.Name
 	}
 	if c.Service.Description == "" {
-		c.Service.Description = "yard - tool hosting proxy"
+		c.Service.Description = "yard - intranet server proxy"
 	}
 
 	names := map[string]bool{}
 	paths := map[string]string{}
-	for i := range c.Tools {
-		t := &c.Tools[i]
-		label := fmt.Sprintf("tool[%d]", i)
+	for i := range c.Servers {
+		t := &c.Servers[i]
+		label := fmt.Sprintf("server[%d]", i)
 		if t.Name != "" {
-			label = fmt.Sprintf("tool %q", t.Name)
+			label = fmt.Sprintf("server %q", t.Name)
 		}
 
 		switch {
@@ -275,14 +287,14 @@ func (c *Config) LogPath(p string) string {
 	return filepath.Join(c.LogDir, p)
 }
 
-// Tool は名前でツール設定を探す。
-func (c *Config) Tool(name string) (Tool, bool) {
-	for _, t := range c.Tools {
+// Server は名前でサーバの設定を探す。
+func (c *Config) Server(name string) (Server, bool) {
+	for _, t := range c.Servers {
 		if t.Name == name {
 			return t, true
 		}
 	}
-	return Tool{}, false
+	return Server{}, false
 }
 
 func (a *Admin) parse() error {
@@ -354,7 +366,7 @@ const Template = `# yard の設定ファイル（TOML）
 # log / access_log はログのディレクトリ（既定 %TEMP%\yard）を基準に解決される。
 # ログは書いたものだけが出力される。
 
-[server]
+[yard]
 addr = ":8080"
 # access_log = "access.log"
 # log = "yard.log"
@@ -366,24 +378,24 @@ allow = ["127.0.0.1", "::1"]
 [service]
 name = "yard"
 # display_name = "yard"
-# description = "yard - tool hosting proxy"
+# description = "yard - intranet server proxy"
 # user = ""
 # user_service = false
 
-# ツールごとに [[tool]] を書く。
+# サーバごとに [[server]] を書く。
 # args と env の中の次の文字列は起動時に置換される。
 #   {port}  yard が割り当てた空きポート
 #   {base}  公開パス（末尾スラッシュあり。例 "/memo/"）
 #   {path}  公開パス（末尾スラッシュなし。例 "/memo"）
-#   {name}  ツール名
+#   {name}  サーバ名
 #   {addr}  "127.0.0.1:{port}"
 #
-# [[tool]]
+# [[server]]
 # name = "memo"
 # path = "/memo"
-# command = "tools/memo.exe"
+# command = "bin/memo.exe"
 # args = ["-port", "{port}", "-base", "{base}"]
-# dir = "tools"
+# dir = "bin"
 # env = ["MEMO_DATA=data/memo"]
 # log = "memo.log"
 # strip_prefix = false
