@@ -1,5 +1,5 @@
 {{template "head" "Config"}}
-{{template "nav" .Page}}
+{{template "nav" .}}
 <main>
   <div id="msgs">
     {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
@@ -63,6 +63,11 @@
       <div class="grid">
         <label title="admin.allow"><span>Allowed clients</span><textarea data-k="admin.allow" data-list rows="3" class="mono" placeholder="127.0.0.1&#10;::1"></textarea></label>
       </div>
+      <div class="grid pw">
+        <label class="check" title="admin.password_hash"><input type="checkbox" id="pw-on"><span>Require password</span></label>
+        <label><span>{{if .Password}}New password{{else}}Password{{end}}</span><input type="password" id="pw" autocomplete="new-password" {{if .Password}}placeholder="unchanged"{{end}}></label>
+        <label><span>Confirm password</span><input type="password" id="pw2" autocomplete="new-password"></label>
+      </div>
     </section>
 
     <section class="panel sec">
@@ -121,6 +126,12 @@
   <script>
   (() => {
     const data = {{.Form}} || {};
+    let hasPassword = {{.Password}};
+    const pwOn = document.getElementById("pw-on"), pw = document.getElementById("pw"), pw2 = document.getElementById("pw2");
+    const pwState = () => { pw.disabled = pw2.disabled = !pwOn.checked; };
+    pwOn.checked = hasPassword;
+    pwOn.addEventListener("change", pwState);
+    pwState();
     const form = document.getElementById("cfg"), list = document.getElementById("servers"),
           tpl = document.getElementById("server"), saveBtn = document.getElementById("save");
 
@@ -194,6 +205,9 @@
         out[sec][key] = read(el);
       });
       list.querySelectorAll(":scope > .srv").forEach(card => out.server.push(collectServer(card)));
+      // Leaving "password" out keeps the current one; "" turns login off.
+      if (!pwOn.checked) out.password = "";
+      else if (pw.value !== "" || !hasPassword) out.password = pw.value;
       return out;
     };
 
@@ -223,8 +237,11 @@
     let saved = JSON.stringify(collect());
     const save = async () => {
       if (saveBtn.disabled) return;
+      const cfg = collect();
+      if (pwOn.checked && cfg.password === "") { show([["error", "Enter a password"]]); pw.focus(); return; }
+      if (pwOn.checked && pw.value !== pw2.value) { show([["error", "The passwords do not match"]]); pw2.focus(); return; }
       saveBtn.disabled = true;
-      const body = JSON.stringify(collect());
+      const body = JSON.stringify(cfg);
       try {
         const res = await fetch("{{admin}}/api/config", {
           method: "PUT", headers: { "Content-Type": "application/json" }, body,
@@ -233,7 +250,11 @@
         let j;
         try { j = JSON.parse(text); } catch (_) { j = { error: text.trim() || res.statusText }; }
         if (!res.ok) { show([["error", j.error]]); return; }
-        saved = body;
+        hasPassword = pwOn.checked;
+        pw.value = pw2.value = "";
+        pw.placeholder = hasPassword ? "unchanged" : "";
+        pw.previousElementSibling.textContent = hasPassword ? "New password" : "Password";
+        saved = JSON.stringify(collect());
         show([["ok", "Saved and applied"], ...(j.notices || []).map(n => ["info", n])]);
       } catch (e) {
         show([["error", String(e)]]);

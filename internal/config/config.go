@@ -70,6 +70,9 @@ type Admin struct {
 	// Editing the configuration is equivalent to running programs, so the default is loopback only.
 	// "*" allows everything. /.yard/health is not subject to this restriction.
 	Allow []string `toml:"allow" json:"allow"`
+	// PasswordHash turns on login for /.yard when set (see HashPassword). It is kept out of JSON
+	// so that the hash never goes to the browser; the form editor sends a new password instead.
+	PasswordHash string `toml:"password_hash" json:"-"`
 
 	prefixes []netip.Prefix
 	any      bool
@@ -325,6 +328,11 @@ func (a *Admin) parse() error {
 	a.prefixes = nil
 	a.any = false
 	var errs []error
+	if a.PasswordHash != "" {
+		if _, err := parsePasswordHash(a.PasswordHash); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for _, s := range a.Allow {
 		if s == "*" {
 			a.any = true
@@ -395,6 +403,8 @@ addr = ":8080"
 [admin]
 # Clients allowed to use /.yard (IP / CIDR / "*"). Loopback only by default.
 allow = ["127.0.0.1", "::1"]
+# Require a password for /.yard. Set it from the form at /.yard/config.
+# password_hash = ""
 
 [service]
 name = "yard"

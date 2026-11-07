@@ -36,6 +36,8 @@ type Server struct {
 	access *accessLog
 	addr   string // yard.addr at startup; cannot be changed by a reload
 	saveMu sync.Mutex
+
+	sessions sessions // logins to /.yard (auth.go)
 }
 
 // New applies the configuration and starts the servers.

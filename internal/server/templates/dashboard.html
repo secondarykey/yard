@@ -1,5 +1,5 @@
 {{template "head" "Servers"}}
-{{template "nav" .Page}}
+{{template "nav" .}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
   {{range .Notices}}<div class="msg info">{{.}}</div>{{end}}

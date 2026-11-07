@@ -1,5 +1,5 @@
 {{template "head" (print .Name " log")}}
-{{template "nav" .Page}}
+{{template "nav" .}}
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
   <div class="bar">

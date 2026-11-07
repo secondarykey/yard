@@ -7,10 +7,98 @@
 <style>
 html, body { margin: 0; height: 100%; background: #141a17; overflow: hidden; }
 canvas { display: block; width: 100vw; height: 100vh; }
+{{- if .Login}}
+#login { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
+#login form {
+  margin: 0; padding: 26px 30px 24px; min-width: min(340px, 86vw);
+  background: rgba(10, 16, 12, 0.72); border: 1px solid rgba(110, 255, 150, 0.35); border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 40px rgba(60, 255, 120, 0.18), inset 0 0 30px rgba(60, 255, 120, 0.06);
+  backdrop-filter: blur(3px);
+  font: 15px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; color: #b8ffc8;
+  opacity: 0; transform: translateY(14px) scale(0.96); filter: blur(4px);
+  transition: opacity .35s ease, transform .35s ease, filter .35s ease;
+}
+#login.on { pointer-events: auto; }
+#login.on form { opacity: 1; transform: none; filter: none; }
+#login.done form { opacity: 0; transform: scale(1.04); filter: blur(6px); transition-duration: .5s; }
+#login .brand { font-weight: 700; letter-spacing: .3em; color: #eaffea; text-shadow: 0 0 8px rgba(125, 255, 154, 0.7); margin-bottom: 16px; }
+#login label { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(110, 255, 150, 0.4); padding-bottom: 6px; }
+#login label::before { content: ">"; color: #7dff9a; }
+#login input {
+  flex: 1; min-width: 0; padding: 2px 0; border: none; outline: none; background: transparent;
+  font: inherit; color: #eaffea; caret-color: #7dff9a; letter-spacing: .15em;
+}
+#login input:disabled { opacity: .5; }
+#login .err { height: 1.4em; margin-top: 8px; font-size: 12px; color: #ff8f8f; }
+#login.bad form { animation: shake .4s; }
+@keyframes shake {
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+{{- end}}
 </style>
 </head>
 <body>
 <canvas id="rain"></canvas>
+{{- if .Login}}
+<div id="login">
+  <form>
+    <div class="brand">YARD</div>
+    <label><input type="password" name="password" autocomplete="current-password" spellcheck="false" aria-label="Password"></label>
+    <div class="err"></div>
+  </form>
+</div>
+<script>
+(() => {
+  const box = document.getElementById("login"), form = box.querySelector("form"),
+        input = form.querySelector("input"), err = form.querySelector(".err");
+  const next = {{.Next}};
+
+  const show = () => {
+    if (box.classList.contains("on")) return;
+    box.classList.add("on");
+    input.focus();
+  };
+  const hide = () => {
+    box.classList.remove("on", "bad");
+    input.value = "";
+    err.textContent = "";
+    input.blur();
+  };
+
+  addEventListener("click", e => { if (!form.contains(e.target)) box.classList.contains("on") ? hide() : show(); });
+  addEventListener("keydown", e => {
+    if (e.key === "Escape") hide();
+    else if (!box.classList.contains("on") && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); show(); }
+  });
+  form.addEventListener("animationend", () => box.classList.remove("bad"));
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    if (input.disabled || input.value === "") return;
+    input.disabled = true;
+    err.textContent = "";
+    try {
+      const res = await fetch({{admin}} + "/login", { method: "POST", body: new URLSearchParams({ password: input.value }) });
+      if (res.ok) {
+        box.classList.add("done");
+        setTimeout(() => location.replace(next), 450);
+        return;
+      }
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch (_) {}
+      err.textContent = msg;
+      box.classList.add("bad");
+      input.value = "";
+    } catch (ex) {
+      err.textContent = String(ex);
+    }
+    input.disabled = false;
+    input.focus();
+  });
+})();
+</script>
+{{- end}}
 <script>
 (() => {
   const SIZE = 18;      // cell size in CSS pixels

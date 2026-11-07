@@ -25,11 +25,13 @@ with no frontend build. Keep it that way.
 ```
 main.go                 entry point, subcommands, service control, logger
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
+  password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
 internal/server         HTTP (forwarding, access log, /.yard)
+  auth.go               login sessions for /.yard
   templates/            admin UI HTML
 _cmd/hello              server for manual testing
 ```
@@ -47,6 +49,13 @@ _cmd/hello              server for manual testing
   Editing the configuration is equivalent to running arbitrary programs, so the default is loopback only.
 - **Keep the write endpoints of `/.yard` inside `http.CrossOriginProtection`.** Without it the configuration
   can be rewritten via CSRF. Only `/.yard/health` is outside the restrictions (for monitoring).
+- **Login (`server/auth.go`) sits inside `admin.allow` and CSRF protection.** The order is
+  restrict → CrossOriginProtection → `POST /login` or authenticate → pages. With `admin.password_hash` set,
+  everything but `/health` and `/login` needs a session; browsers without one get `matrix.html` with `Login`.
+  Sessions are in memory and remember the hash they logged in with, so a password change ends them.
+- **`admin.password_hash` never goes to the browser.** It is `json:"-"`; the form sends `password`
+  (absent = keep the one in the file, `""` = off, otherwise a new password that `apiConfigPut` hashes).
+  Hashing is PBKDF2 from the standard library (`crypto/pbkdf2`), since x/crypto is not a dependency.
 - **Proc state transitions go through `setStateLocked`.** The `ready` channel is open only while `starting`,
   and the forwarding side (`WaitReady`) waits on it. Writing `p.state` directly leaves waiters stuck.
   `Start()` sets `starting` synchronously before spawning the goroutine (so that immediate requests wait).
@@ -79,6 +88,8 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 ## Known issues
 
 - Server logs (`log`) are not rotated.
+- Pages of the published servers share the origin with `/.yard`, so their scripts can call `/.yard` with the
+  logged-in user's session (the cookie is HttpOnly and limited to `/.yard`, but same-origin requests carry it).
 - Saving from the form editor rewrites yard.ini without its comments.
 - On Windows there is no way to ask a server to stop gracefully; stopping terminates it immediately.
 - Grandchild processes created between start and being put in the job object can leak (Windows).

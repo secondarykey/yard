@@ -71,6 +71,7 @@ log = "yard.log"                  # yard's own log; omit for stderr (the OS log 
 
 [admin]
 allow = ["127.0.0.1", "::1", "192.168.10.0/24"]   # clients allowed to use /.yard; "*" allows all
+# password_hash = "pbkdf2-sha256$..."            # require a password for /.yard; set it from the form at /.yard/config
 
 [service]
 name = "yard"                     # service name; change it to register multiple instances
@@ -133,7 +134,9 @@ A new port is picked on each start. Child processes created by the server are st
 | `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart) |
 | `GET /.yard/config` | Edit the configuration as a form (`?view=text` for the raw file). Validated and applied on save. Saving from the form rewrites yard.ini without its comments |
 | `GET /.yard/servers/{name}/log` | Server output (last 256KB). `?raw` for plain text |
-| `GET /.yard/matrix` | Digital rain (just for fun) |
+| `GET /.yard/matrix` | Digital rain (just for fun; also the login page) |
+| `POST /.yard/login` | Log in with the form value `password` (204, or 401 for a wrong password) |
+| `POST /.yard/logout` | Log out |
 | `GET /.yard/health` | Whether yard is alive and the state of each server (**no client restriction**) |
 | `GET /.yard/health/{name}` | 200 if the server is running, otherwise 503 (**no client restriction**) |
 | `GET /.yard/api/servers` | Server states (JSON) |
@@ -148,6 +151,25 @@ Changes to `yard.addr` / `yard.log` / `[service]` require restarting yard (`[ser
 **Editing the configuration is equivalent to running arbitrary programs.** For this reason `/.yard` is only
 accessible from loopback by default. If you widen `admin.allow`, keep the allowed clients narrow.
 `X-Forwarded-For` is not used to identify the client. Form submissions from other sites (CSRF) are rejected using `Sec-Fetch-Site` / `Origin`.
+
+### Password
+
+Turning on "Require password" in the form at `/.yard/config` makes `/.yard` require logging in, on top of
+`admin.allow`. Only a PBKDF2-SHA256 hash is stored (`admin.password_hash`); the form never shows it.
+Without a session, browsers get the digital rain, and clicking it brings up the password box.
+The API answers `401`; scripts can log in first and keep the cookie:
+
+```bash
+curl -c jar -d password=... http://localhost:8080/.yard/login
+curl -b jar http://localhost:8080/.yard/api/servers
+```
+
+- `/.yard/health` stays open.
+- Sessions are kept in memory: restarting yard logs everyone out, and so does changing or removing the password.
+  A session ends after 24 hours without requests.
+- A wrong password costs one second, and only one login is checked at a time.
+- If you forget the password, remove `password_hash` from yard.ini and restart yard.
+- yard does not do TLS, so on a network the password travels in plain text unless something in front of yard adds HTTPS.
 
 ## Access log format
 

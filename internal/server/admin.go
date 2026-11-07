@@ -53,11 +53,16 @@ const logTailBytes = 256 << 10
 //	POST /config                      validate, save, and apply
 //	POST /reload                      reread and apply the configuration file
 //	GET  /matrix                      digital rain (just for fun)
+//	POST /login                       log in with the form value "password" (when admin.password_hash is set)
+//	POST /logout                      log out
 //	GET  /api/servers                 JSON
 //	POST /api/servers/{name}/{action} JSON
 //	POST /api/reload                  JSON
 //	GET  /api/config                  contents of the configuration file
 //	PUT  /api/config                  validate, save, and apply (TOML, or JSON from the form editor)
+//
+// With a password set, everything except /health and /login needs a session; browsers that
+// have none get the digital rain as the login page.
 func (s *Server) adminHandler() http.Handler {
 	a := config.AdminPath
 
@@ -69,6 +74,7 @@ func (s *Server) adminHandler() http.Handler {
 	priv.HandleFunc("POST "+a+"/config", s.handleConfigSave)
 	priv.HandleFunc("POST "+a+"/reload", s.handleReload)
 	priv.HandleFunc("GET "+a+"/matrix", s.handleMatrix)
+	priv.HandleFunc("POST "+a+"/logout", s.handleLogout)
 	priv.HandleFunc("GET "+a+"/api/servers", s.apiServers)
 	priv.HandleFunc("POST "+a+"/api/servers/{name}/{action}", s.apiAction)
 	priv.HandleFunc("POST "+a+"/api/reload", s.apiReload)
@@ -77,6 +83,11 @@ func (s *Server) adminHandler() http.Handler {
 	priv.HandleFunc(a+"/", func(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 	})
+
+	// Logging in is the only thing allowed without a session.
+	login := http.NewServeMux()
+	login.HandleFunc("POST "+a+"/login", s.handleLogin)
+	login.Handle(a+"/", s.authenticate(priv))
 
 	// Editing the configuration is equivalent to running programs, so reject forms
 	// submitted from other sites' pages (CSRF) using Sec-Fetch-Site / Origin.
@@ -88,7 +99,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+a+"/health", s.handleHealth)
 	mux.HandleFunc("GET "+a+"/health/{name}", s.handleHealthServer)
-	mux.Handle(a+"/", s.restrict(cop.Handler(priv)))
+	mux.Handle(a+"/", s.restrict(cop.Handler(login)))
 	return mux
 }
 
@@ -137,8 +148,16 @@ func (s *Server) handleHealthServer(w http.ResponseWriter, r *http.Request) {
 
 // ---- Pages ----
 
+// pageData is what the header needs. render fills in Auth.
+type pageData struct {
+	Page string
+	Auth bool // login is on, so show "Log out"
+}
+
+func (p *pageData) setAuth(on bool) { p.Auth = on }
+
 type dashboardData struct {
-	Page    string
+	pageData
 	Servers []proc.Status
 	Addr    string
 	Config  string
@@ -147,8 +166,8 @@ type dashboardData struct {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "dashboard.html", dashboardData{
-		Page:    "servers",
+	s.render(w, http.StatusOK, "dashboard.html", &dashboardData{
+		pageData: pageData{Page: "servers"},
 		Servers: s.mgr.Statuses(),
 		Addr:    s.addr,
 		Config:  s.path,
@@ -184,7 +203,7 @@ func redirectDashboard(w http.ResponseWriter, r *http.Request, q url.Values) {
 }
 
 type logData struct {
-	Page      string
+	pageData
 	Name      string
 	File      string
 	Text      string
@@ -199,7 +218,7 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := p.Config()
-	d := logData{Page: "servers", Name: t.Name, File: t.Log}
+	d := &logData{pageData: pageData{Page: "servers"}, Name: t.Name, File: t.Log}
 	if t.Log == "" {
 		d.Error = "log is not configured"
 	} else if text, truncated, err := tail(t.Log, logTailBytes); err != nil {
@@ -216,11 +235,12 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 }
 
 type configData struct {
-	Page    string
-	View    string // "form" or "text"
-	File    string
-	Dir     string         // directory of the configuration file (base for relative command / dir)
-	Form    *config.Config // the configuration as written, for the form view
+	pageData
+	View     string // "form" or "text"
+	File     string
+	Dir      string         // directory of the configuration file (base for relative command / dir)
+	Form     *config.Config // the configuration as written, for the form view
+	Password bool           // the file sets admin.password_hash (which is not part of Form's JSON)
 	Text    string
 	Saved   bool
 	Notices []string
@@ -228,7 +248,7 @@ type configData struct {
 }
 
 func (s *Server) handleConfigPage(w http.ResponseWriter, r *http.Request) {
-	d := configData{Page: "config", View: "form", File: s.path, Dir: filepath.Dir(s.path)}
+	d := &configData{pageData: pageData{Page: "config"}, View: "form", File: s.path, Dir: filepath.Dir(s.path)}
 	if r.URL.Query().Get("view") == "text" {
 		d.View = "text"
 	}
@@ -241,6 +261,8 @@ func (s *Server) handleConfigPage(w http.ResponseWriter, r *http.Request) {
 		if d.Form, err = config.Decode(b); err != nil {
 			// The form cannot represent a file that does not decode; fix it as text.
 			d.View, d.Form, d.Error = "text", nil, err.Error()
+		} else {
+			d.Password = d.Form.Admin.PasswordHash != ""
 		}
 	}
 	s.render(w, http.StatusOK, "config.html", d)
@@ -248,7 +270,7 @@ func (s *Server) handleConfigPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 	text := r.PostFormValue("config")
-	d := configData{Page: "config", View: "text", File: s.path, Dir: filepath.Dir(s.path), Text: text}
+	d := &configData{pageData: pageData{Page: "config"}, View: "text", File: s.path, Dir: filepath.Dir(s.path), Text: text}
 	notices, err := s.SaveConfig([]byte(text))
 	if err != nil {
 		d.Error = err.Error()
@@ -259,8 +281,13 @@ func (s *Server) handleConfigSave(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "config.html", d)
 }
 
+type matrixData struct {
+	Login bool   // show the password box on click
+	Next  string // where to go after logging in
+}
+
 func (s *Server) handleMatrix(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "matrix.html", nil)
+	s.render(w, http.StatusOK, "matrix.html", matrixData{})
 }
 
 // ---- JSON API ----
@@ -301,30 +328,71 @@ func (s *Server) apiConfigGet(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+// configForm is the JSON the form editor sends: the keys of yard.ini, except that admin.password_hash
+// never leaves the server. "password" is absent (or null) to keep the current one, "" to turn login
+// off, and anything else to set a new password.
+type configForm struct {
+	config.Config
+	Password *string `json:"password"`
+}
+
 // apiConfigPut takes the configuration text, or with Content-Type application/json the configuration
-// as the form editor sends it (the keys of yard.ini), which is written out with config.Format.
+// as the form editor sends it (configForm), which is written out with config.Format.
+// Setting a password from the form also logs in the client that set it.
 func (s *Server) apiConfigPut(w http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	newHash := ""
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "application/json" {
-		var c config.Config
+		var f configForm
 		dec := json.NewDecoder(bytes.NewReader(b))
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&c); err != nil {
+		if err := dec.Decode(&f); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
-		b = config.Format(&c)
+		switch {
+		case f.Password == nil:
+			hash, err := s.currentPasswordHash()
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "cannot keep the current password: " + err.Error()})
+				return
+			}
+			f.Admin.PasswordHash = hash
+		case *f.Password != "":
+			if f.Admin.PasswordHash, err = config.HashPassword(*f.Password); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
+			newHash = f.Admin.PasswordHash
+		}
+		b = config.Format(&f.Config)
 	}
 	notices, err := s.SaveConfig(b)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	if newHash != "" {
+		s.startSession(w, r, newHash)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"notices": notices})
+}
+
+// currentPasswordHash returns admin.password_hash as written in the configuration file.
+func (s *Server) currentPasswordHash() (string, error) {
+	b, err := s.ReadConfig()
+	if err != nil {
+		return "", err
+	}
+	c, err := config.Decode(b)
+	if err != nil {
+		return "", err
+	}
+	return c.Admin.PasswordHash, nil
 }
 
 // ---- Common ----
@@ -355,6 +423,9 @@ func (s *Server) doAction(name, action string) (proc.Status, error) {
 }
 
 func (s *Server) render(w http.ResponseWriter, code int, name string, data any) {
+	if p, ok := data.(interface{ setAuth(bool) }); ok {
+		p.setAuth(s.Config().Admin.AuthEnabled())
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
 	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
