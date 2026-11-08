@@ -140,7 +140,7 @@ A new port is picked on each start. Child processes created by the server are st
 
 | URL | Description |
 |---|---|
-| `GET /.yard/` | Server list (state, PID, port, uptime; start / stop / restart; turn `disabled` / `log` on or off) |
+| `GET /.yard/` | Server list (see below) |
 | `GET /.yard/config` | Edit the configuration as a form (`?view=text` for the raw file). Validated and applied on save. Saving from the form rewrites yard.ini without its comments |
 | `GET /.yard/servers/{name}/log` | Server output of the current or last start (last 256KB). `?raw` for plain text |
 | `GET /.yard/logs/{yard\|access}` | Yard's own log / the access log: the current day's file (last 256KB). `?raw` for plain text |
@@ -158,19 +158,26 @@ A new port is picked on each start. Child processes created by the server are st
 
 When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
 A changed server that was stopped stays stopped.
-
-When the server list is opened on the machine Yard runs on, a server's port links to the server itself
-(`http://127.0.0.1:{port}{base}`, bypassing Yard), for telling Yard's problems from the server's.
-From other machines the port is plain text, since servers only listen on loopback.
-
-Enabled and Log in the server list are saved to yard.ini. Only that one line is changed, so comments are kept.
-Disabling a server stops it, and turning its log on or off restarts it if it is running.
 Changes to `yard.addr` / `yard.log` / `yard.redirect_addr` / `[service]`, and turning HTTPS on or off, require restarting Yard
 (`[service]` requires re-registering). A renewed certificate is picked up by a reload.
 
 **Editing the configuration is equivalent to running arbitrary programs.** For this reason `/.yard` is only
 accessible from loopback by default. If you widen `admin.allow`, keep the allowed clients narrow.
 `X-Forwarded-For` is not used to identify the client. Form submissions from other sites (CSRF) are rejected using `Sec-Fetch-Site` / `Origin`.
+
+### Server list
+
+Each row shows a server's state, PID, port, uptime, restarts and last error, refreshed every 2 seconds.
+
+- **Enabled** (first column) and **Log** (next to PID) are the server's `disabled` / `log`, saved to yard.ini.
+  Only that one line is changed, so comments are kept. Disabling a running server stops it, and turning its
+  log on or off restarts it; both ask first.
+- **Start / Stop** is one button that follows the state; stopping asks first. **Restart** does not ask.
+- **Port** links to the server itself (`http://127.0.0.1:{port}{base}`, bypassing Yard) when the list is opened
+  on the machine Yard runs on, for telling Yard's problems from the server's. From other machines it is plain
+  text, since servers only listen on loopback.
+- **Log** (last column) shows the server's output of the current or last start. **Yard log** / **Access log**
+  at the top show today's file of Yard's own log and the access log, when they are on.
 
 ### Password
 
@@ -224,7 +231,7 @@ Each log is turned on with `true` and has a fixed name in the log directory:
 | `[yard] access_log` | `access_20261108.log` | one file per day |
 | `[[server]] log` | `{name}-{pid}.log` (`memo-1234.log`) | one file per start |
 
-Old files are kept; deleting them is up to you.
+Old files are kept; deleting them is up to you. The current files can be read from the server list.
 When Yard's own log reopens a file that already exists (Yard restarted the same day), a separator line is written to it.
 
 Yard's own log is written with `log/slog`:

@@ -31,12 +31,15 @@ main.go                 entry point, subcommands, service control, logger
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
   password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
+  edit.go               changing one flag of a server in yard.ini (Enabled / Log on the server list)
 internal/logfile        Yard's own log and the access log as one file per day (wenteasy/log RollingFileWriter)
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
   log_windows.go        opens server output so that it can be renamed while open ({name}-{pid}.log)
+  log_other.go          the same elsewhere (plain os.OpenFile)
 internal/server         HTTP (forwarding, access log, /.yard)
+  admin.go              /.yard pages and JSON API (server list, logs, config editor)
   auth.go               login sessions for /.yard
   tls.go                HTTPS certificate selection and the http → https redirect
   templates/            admin UI HTML
@@ -95,6 +98,10 @@ _cmd/hello              server for manual testing
   `{name}-{pid}.log` right after start (`Proc.nameLog`). On Windows that only works because `openLog` opens it
   with `FILE_SHARE_DELETE`; `os.OpenFile` does not. `Proc.LogFile` is the file of the current or last start.
   The access log has no markers (`DisableMarkers`) so that it stays parseable.
+  The admin UI reads the current files from the writers (`RollingFileWriter.Path`): the access log through
+  `Server.access`, and Yard's own log through `Server.SetYardLog`, since `main.go` sets the logger up first.
+- **The Port link (`Status.Direct`) is only for browsers on this machine.** Servers listen on `127.0.0.1`,
+  so the server list makes it a link only when the request comes from loopback (`dashboardData.Local`).
 - Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
   Windows services do not receive signals.
@@ -114,7 +121,9 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 ## Known issues
 
 - Server logs (`log`) get a new file per start but are never deleted; a server that keeps crashing leaves many files.
-  The admin UI shows only the file of the current or last start.
+  The admin UI shows only the file of the current or last start, and loses even that when the server is
+  disabled or its log is turned off (the `Proc` is recreated).
+- Yard log / Access log show only today's file; older days have to be read from the log directory.
 - Pages of the published servers share the origin with `/.yard`, so their scripts can call `/.yard` with the
   logged-in user's session (the cookie is HttpOnly and limited to `/.yard`, but same-origin requests carry it).
 - Saving from the form editor rewrites yard.ini without its comments.
@@ -123,10 +132,3 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 - On Unix, if Yard is killed with SIGKILL, servers are left running (pdeathsig is not used).
 - `strip_prefix` does not rewrite absolute paths in HTML or Cookie paths.
 - Service registration is unverified on real Windows, Linux, and macOS machines (_docs/service.md).
-
-## TODO
-
-- Use the digital rain (`/.yard/matrix`, `templates/matrix.html`) for authentication on the config page.
-  The idea: show the rain as the screen in front of `/.yard/config` (e.g. a login / unlock screen).
-  Today `/.yard` has no authentication; it relies only on the `admin.allow` client restriction.
-  The method (password, token, etc.) is undecided.
