@@ -56,7 +56,9 @@
         <label title="yard.cert"><span>TLS certificate</span><input data-k="yard.cert" class="mono"></label>
         <label title="yard.key"><span>TLS key</span><input data-k="yard.key" class="mono"></label>
         <label title="yard.redirect_addr"><span>HTTP redirect address</span><input data-k="yard.redirect_addr" class="mono" placeholder=":80"></label>
-        <label class="check" title="yard.log: yard_YYYYMMDD.log"><input type="checkbox" data-k="yard.log"><span>yard log</span></label>
+        <label title="yard.log_compress_days"><span>Compress logs after (days)</span><input data-k="yard.log_compress_days" type="number" min="0" class="mono"></label>
+        <label title="yard.log_keep_days"><span>Delete logs after (days)</span><input data-k="yard.log_keep_days" type="number" min="0" class="mono"></label>
+        <label class="check" title="yard.log: yard_YYYYMMDD.log"><input type="checkbox" data-k="yard.log"><span>Yard log</span></label>
         <label class="check" title="yard.access_log: access_YYYYMMDD.log"><input type="checkbox" data-k="yard.access_log"><span>Access log</span></label>
       </div>
     </section>
@@ -143,11 +145,13 @@
 
     const read = el => {
       if (el.type === "checkbox") return el.checked;
+      if (el.type === "number") return el.value.trim() === "" ? 0 : Number(el.value);
       if (el.hasAttribute("data-list")) return el.value.split("\n").map(s => s.replace(/\r$/, "")).filter(s => s.trim() !== "");
       return el.value.trim();
     };
     const write = (el, v) => {
       if (el.type === "checkbox") { el.checked = !!v; return; }
+      if (el.type === "number") { el.value = v ? String(v) : ""; return; }
       if (el.hasAttribute("data-list")) {
         el.value = (v || []).join("\n");
         el.rows = Math.min(Math.max(el.rows, (v || []).length + 1), 12);

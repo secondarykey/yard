@@ -65,7 +65,9 @@ Unknown keys are errors (so that typos are caught).
 [yard]
 addr = ":8080"                    # listen address
 access_log = true                 # access log, one file per day (access_20261108.log)
-log = true                        # yard's own log, one file per day (yard_20261108.log); if false, stderr (the OS log when running as a service)
+log = true                        # Yard's own log, one file per day (yard_20261108.log); if false, stderr (the OS log when running as a service)
+log_compress_days = 7             # gzip log / access_log files older than this many days; omit to keep them as they are
+log_keep_days = 90                # delete log / access_log files older than this many days; omit to keep them all
 # cert = "yard.crt"               # with key: serve HTTPS on addr (PEM files)
 # key = "yard.key"
 # redirect_addr = ":80"           # with HTTPS: plain HTTP here is redirected to https
@@ -231,7 +233,15 @@ Each log is turned on with `true` and has a fixed name in the log directory:
 | `[yard] access_log` | `access_20261108.log` | one file per day |
 | `[[server]] log` | `{name}-{pid}.log` (`memo-1234.log`) | one file per start |
 
-Old files are kept; deleting them is up to you. The current files can be read from the server list.
+The current files can be read from the server list.
+
+Old files of Yard's own log and the access log are kept as they are unless `log_compress_days` / `log_keep_days`
+are set. With `log_compress_days = 7` and `log_keep_days = 90`, today's and the previous 6 days' files stay as
+`.log`, files from 7 to 89 days ago become `.log.gz`, and older ones are deleted. The age comes from the date in the
+file name, and only files named exactly `yard_<date>.log` / `access_<date>.log` (or `.log.gz`) are touched.
+This runs when Yard starts and when the date changes. Changing the two values applies to the access log at once
+and to Yard's own log after a restart. Server output files are never compressed or deleted; that is up to you.
+
 When Yard's own log reopens a file that already exists (Yard restarted the same day), a separator line is written to it.
 
 Yard's own log is written with `log/slog`:

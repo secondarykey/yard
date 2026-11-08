@@ -71,7 +71,7 @@ func (s *Server) accessLogFile() string {
 
 // New applies the configuration and starts the servers.
 func New(cfgPath string, cfg *config.Config, logger *slog.Logger) (*Server, error) {
-	access, err := openAccessLog(cfg.AccessLog())
+	access, err := openAccessLog(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("access log: %w", err)
 	}
@@ -189,14 +189,16 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	}
 	if cfg.Yard.Log != old.Yard.Log {
 		notices = append(notices, "yard.log takes effect after restarting Yard")
+	} else if cfg.Yard.Log && !sameCleanup(cfg.Yard, old.Yard) {
+		notices = append(notices, "yard.log_compress_days / log_keep_days take effect on Yard's own log after restarting Yard (the access log follows now)")
 	}
 	if cfg.Service != old.Service {
 		notices = append(notices, "[service] takes effect after re-registering the service (uninstall → install)")
 	}
 
 	var access *accessLog
-	if cfg.Yard.AccessLog != old.Yard.AccessLog {
-		a, err := openAccessLog(cfg.AccessLog())
+	if cfg.Yard.AccessLog != old.Yard.AccessLog || !sameCleanup(cfg.Yard, old.Yard) {
+		a, err := openAccessLog(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("access log: %w", err)
 		}
@@ -214,6 +216,11 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	s.mgr.Apply(cfg.Servers)
 	s.logger.Info("config applied", "servers", len(cfg.Servers))
 	return notices, nil
+}
+
+// sameCleanup reports whether a and b compress / delete old log files alike.
+func sameCleanup(a, b config.Yard) bool {
+	return a.LogCompressDays == b.LogCompressDays && a.LogKeepDays == b.LogKeepDays
 }
 
 // Handler returns the HTTP handler for all of yard.

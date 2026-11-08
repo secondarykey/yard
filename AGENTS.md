@@ -97,7 +97,9 @@ _cmd/hello              server for manual testing
   The pid is not known until the process exists, so the file is opened as `{name}-starting.log` and renamed to
   `{name}-{pid}.log` right after start (`Proc.nameLog`). On Windows that only works because `openLog` opens it
   with `FILE_SHARE_DELETE`; `os.OpenFile` does not. `Proc.LogFile` is the file of the current or last start.
-  The access log has no markers (`DisableMarkers`) so that it stays parseable.
+  The access log has no markers (`DisableMarkers`) so that it stays parseable. `log_compress_days` / `log_keep_days`
+  are handed to the writer (`logfile.Options`); wenteasy/log does the compressing and deleting in the background.
+  They apply to yard.log and access_log only, not to server output.
   The admin UI reads the current files from the writers (`RollingFileWriter.Path`): the access log through
   `Server.access`, and Yard's own log through `Server.SetYardLog`, since `main.go` sets the logger up first.
 - **The Port link (`Status.Direct`) is only for browsers on this machine.** Servers listen on `127.0.0.1`,
