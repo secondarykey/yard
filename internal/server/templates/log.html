@@ -3,6 +3,7 @@
 <main>
   {{with .Error}}<div class="msg error">{{.}}</div>{{end}}
   <div class="bar">
+    <a class="btn" href="{{admin}}/" title="Servers">←</a>
     <h1>{{.Name}}</h1>
     <span class="muted mono">{{.File}}</span>
     <span class="spacer"></span>
