@@ -125,7 +125,8 @@ The environment variables `YARD_PORT` / `YARD_BASE` / `YARD_NAME` are always pas
 
 - The target is chosen by longest match on `path`. `/memo` matches `/memo` and `/memo/...`, but not `/memox`.
 - The `Host` header is passed through unchanged, and `X-Forwarded-For` / `X-Forwarded-Host` / `X-Forwarded-Proto` /
-  `X-Forwarded-Prefix` are added.
+  `X-Forwarded-Prefix` and `Forwarded` (RFC 7239, e.g. `for=192.0.2.43;host="example.com:8080";proto=http`) are added.
+  These headers sent by the client are dropped first, so a server sees only the address Yard saw.
 - WebSocket and SSE are relayed as is.
 - Requests to a server that is starting wait until its port opens (up to `start_timeout`).
   If it is stopped or waiting to restart, the response is `503`.
