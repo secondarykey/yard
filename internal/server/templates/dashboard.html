@@ -13,7 +13,7 @@
   {{if .Servers}}
   <table>
     <thead><tr>
-      <th class="center"></th><th>Name</th><th>Path</th><th class="center">State</th><th class="center">PID</th><th class="center">Log</th><th class="center">Port</th><th class="center">Uptime</th><th class="center">Restarts</th><th>Error</th><th class="center"></th><th class="center"></th>
+      <th class="center"></th><th>Name</th><th>Path</th><th class="center">State</th><th class="center">PID</th><th class="center">Log</th><th class="center">Port</th><th class="center"></th><th class="center">Uptime</th><th class="center">Restarts</th><th>Error</th><th class="center"></th>
     </tr></thead>
     <tbody>
     {{range .Servers}}
@@ -29,9 +29,6 @@
         <form method="post" action="{{admin}}/servers/{{.Name}}/log-on"><input type="checkbox" data-s="log" title="log"{{if .Log}} checked{{end}}></form>
       </td>
       <td class="num mono center" data-f="port">{{with .Port}}{{.}}{{end}}</td>
-      <td class="num center" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
-      <td class="num center" data-f="restarts">{{.Restarts}}</td>
-      <td class="err" data-f="error">{{.Error}}</td>
       <td class="center">
         <div class="actions">
           {{if or (eq .State "running") (eq .State "starting") (eq .State "backoff")}}
@@ -42,6 +39,9 @@
           <form method="post" action="{{admin}}/servers/{{.Name}}/restart"><button data-a="restart">Restart</button></form>
         </div>
       </td>
+      <td class="num center" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
+      <td class="num center" data-f="restarts">{{.Restarts}}</td>
+      <td class="err" data-f="error">{{.Error}}</td>
       <td class="center"><a class="btn{{if not .HasLog}} invisible{{end}}" data-f="loglink" href="{{admin}}/servers/{{.Name}}/log">Log</a></td>
     </tr>
     {{end}}
