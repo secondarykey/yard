@@ -43,6 +43,30 @@ type Server struct {
 	redirectAddr string
 
 	sessions sessions // logins to /.yard (auth.go)
+
+	yardLog func() string // file yard's own log is being written to; nil if it does not go to a file
+}
+
+// SetYardLog tells the admin UI where yard's own log is written (path returns the current file).
+// yard's own log is set up before the Server, and does not change until yard restarts.
+func (s *Server) SetYardLog(path func() string) { s.yardLog = path }
+
+// yardLogFile returns the current file of yard's own log, or "".
+func (s *Server) yardLogFile() string {
+	if s.yardLog == nil {
+		return ""
+	}
+	return s.yardLog()
+}
+
+// accessLogFile returns the current file of the access log, or "" if it is off.
+func (s *Server) accessLogFile() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.access == nil {
+		return ""
+	}
+	return s.access.w.Path()
 }
 
 // New applies the configuration and starts the servers.
@@ -155,16 +179,16 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 	var notices []string
 	old := s.Config()
 	if cfg.Yard.Addr != s.addr {
-		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) takes effect after restarting yard", s.addr, cfg.Yard.Addr))
+		notices = append(notices, fmt.Sprintf("yard.addr (%s → %s) takes effect after restarting Yard", s.addr, cfg.Yard.Addr))
 	}
 	if cfg.Yard.TLS() != (s.startCert != nil) {
-		notices = append(notices, "turning HTTPS (yard.cert / yard.key) on or off takes effect after restarting yard")
+		notices = append(notices, "turning HTTPS (yard.cert / yard.key) on or off takes effect after restarting Yard")
 	}
 	if cfg.Yard.RedirectAddr != s.redirectAddr {
-		notices = append(notices, "yard.redirect_addr takes effect after restarting yard")
+		notices = append(notices, "yard.redirect_addr takes effect after restarting Yard")
 	}
 	if cfg.Yard.Log != old.Yard.Log {
-		notices = append(notices, "yard.log takes effect after restarting yard")
+		notices = append(notices, "yard.log takes effect after restarting Yard")
 	}
 	if cfg.Service != old.Service {
 		notices = append(notices, "[service] takes effect after re-registering the service (uninstall → install)")

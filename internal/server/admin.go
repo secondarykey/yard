@@ -49,6 +49,7 @@ const logTailBytes = 256 << 10
 //	GET  /                            server list
 //	POST /servers/{name}/{action}     start / stop / restart, or enable / disable / log-on / log-off (saved to yard.ini)
 //	GET  /servers/{name}/log          server output (tail)
+//	GET  /logs/{yard|access}          yard's own log / the access log, today's file (tail)
 //	GET  /config                      edit the configuration file
 //	POST /config                      validate, save, and apply
 //	POST /reload                      reread and apply the configuration file
@@ -70,6 +71,7 @@ func (s *Server) adminHandler() http.Handler {
 	priv.HandleFunc("GET "+a+"/{$}", s.handleDashboard)
 	priv.HandleFunc("POST "+a+"/servers/{name}/{action}", s.handleAction)
 	priv.HandleFunc("GET "+a+"/servers/{name}/log", s.handleLog)
+	priv.HandleFunc("GET "+a+"/logs/{kind}", s.handleYardLog)
 	priv.HandleFunc("GET "+a+"/config", s.handleConfigPage)
 	priv.HandleFunc("POST "+a+"/config", s.handleConfigSave)
 	priv.HandleFunc("POST "+a+"/reload", s.handleReload)
@@ -158,21 +160,25 @@ func (p *pageData) setAuth(on bool) { p.Auth = on }
 
 type dashboardData struct {
 	pageData
-	Servers []proc.Status
-	Addr    string
-	Config  string
-	Notices []string
-	Error   string
+	Servers   []proc.Status
+	Addr      string
+	Config    string
+	YardLog   bool // yard's own log goes to a file
+	AccessLog bool
+	Notices   []string
+	Error     string
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "dashboard.html", &dashboardData{
-		pageData: pageData{Page: "servers"},
-		Servers:  s.mgr.Statuses(),
-		Addr:     s.addr,
-		Config:   s.path,
-		Notices:  r.URL.Query()["notice"],
-		Error:    r.URL.Query().Get("error"),
+		pageData:  pageData{Page: "servers"},
+		Servers:   s.mgr.Statuses(),
+		Addr:      s.addr,
+		Config:    s.path,
+		YardLog:   s.yardLogFile() != "",
+		AccessLog: s.accessLogFile() != "",
+		Notices:   r.URL.Query()["notice"],
+		Error:     r.URL.Query().Get("error"),
 	})
 }
 
@@ -217,8 +223,24 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
 		return
 	}
-	file := p.LogFile()
-	d := &logData{pageData: pageData{Page: "servers"}, Name: p.Config().Name, File: file}
+	s.writeLog(w, r, p.Config().Name, p.LogFile())
+}
+
+// handleYardLog shows yard's own log ("yard") or the access log ("access"): the file of the current day.
+func (s *Server) handleYardLog(w http.ResponseWriter, r *http.Request) {
+	switch r.PathValue("kind") {
+	case "yard":
+		s.writeLog(w, r, "Yard", s.yardLogFile())
+	case "access":
+		s.writeLog(w, r, "Access", s.accessLogFile())
+	default:
+		s.renderError(w, r, http.StatusNotFound, "Not Found", "")
+	}
+}
+
+// writeLog shows the end of a log file as a page, or as plain text with ?raw.
+func (s *Server) writeLog(w http.ResponseWriter, r *http.Request, name, file string) {
+	d := &logData{pageData: pageData{Page: "servers"}, Name: name, File: file}
 	if file == "" {
 		d.Error = "no log has been written"
 	} else if text, truncated, err := tail(file, logTailBytes); err != nil {

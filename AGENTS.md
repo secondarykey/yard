@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Development overview of yard. For usage, configuration, and URLs see [README.md](README.md);
+Development overview of Yard. For usage, configuration, and URLs see [README.md](README.md);
 for the original specification see [_docs/spec.md](_docs/spec.md); for OS differences in service behavior see [_docs/service.md](_docs/service.md).
 
 ## What this is
@@ -9,9 +9,12 @@ A proxy server that publishes a set of servers inside an intranet. It starts the
 configuration on free ports, monitors them, and forwards requests by URI prefix. `/.yard` is the admin UI.
 It ships as a single executable.
 
-**Terminology:** what yard starts and publishes is called a "server" (`[[server]]` in the configuration,
+**Terminology:** what Yard starts and publishes is called a "server" (`[[server]]` in the configuration,
 `config.Server` as a type, `/.yard/servers/...` in URLs). Do not call them "tools", since what gets registered
-is not necessarily a tool. yard's own listen and log settings are `[yard]` (`config.Yard`).
+is not necessarily a tool. Yard's own listen and log settings are `[yard]` (`config.Yard`).
+
+**Name:** the project id is `yard` (Go module, executable, `yard.ini`, `[yard]`, `/.yard`, service name, file names);
+the app name people read is **Yard** (UI, page titles, service display name and description, prose in the docs).
 
 **Language:** everything in the repository (code, comments, messages, UI, docs) is written in English,
 except `_docs/spec.md`, which is the original Japanese specification and must not be rewritten.
@@ -28,7 +31,7 @@ main.go                 entry point, subcommands, service control, logger
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
   password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
-internal/logfile        yard's own log and the access log as one file per day (wenteasy/log RollingFileWriter)
+internal/logfile        Yard's own log and the access log as one file per day (wenteasy/log RollingFileWriter)
 internal/proc           server process management (Proc: one server, Manager: all of them and longest match)
   tree_windows.go       groups the process tree with a job object
   tree_unix.go          groups it with a process group
@@ -67,7 +70,7 @@ _cmd/hello              server for manual testing
 - **Pass `*os.File` directly as server output (not a pipe).** With a pipe, `cmd.Wait` does not return
   while a grandchild process still holds the pipe.
 - **Stopping works on the whole process tree.** On Windows it is a job object (KILL_ON_JOB_CLOSE), so
-  servers do not survive even if yard is killed. On Unix, SIGTERM → SIGKILL to the process group.
+  servers do not survive even if Yard is killed. On Unix, SIGTERM → SIGKILL to the process group.
 - **Applying the configuration (`Manager.Apply`) is diff-based.** Servers whose `config.Server` is equal under
   `reflect.DeepEqual` keep running. Do not give `config.Server` non-comparable values (functions, etc.).
   A changed server is recreated, and started again unless the old one was `stopped`.
@@ -78,16 +81,16 @@ _cmd/hello              server for manual testing
   as written (relative paths, empty = default), never the normalized ones. `config.Format` writes them out;
   a key added to `config.Server` etc. needs a json tag, a line in `Format`, and a field in `config.html`.
 - **Validate before saving the configuration.** `SaveConfig` replaces the file via a temporary file only when `config.Parse` succeeds.
-- **HTTPS is done by yard itself (`[yard] cert` / `key`), not by a proxy in front.** A proxy on the same machine
+- **HTTPS is done by Yard itself (`[yard] cert` / `key`), not by a proxy in front.** A proxy on the same machine
   makes every client loopback, which opens `/.yard` and `local_only` to everyone. `config.Parse` loads the
   key pair (so saving a broken certificate fails); `Server.TLSConfig` takes it from the current configuration
   on each handshake, so a reload renews it. Turning HTTPS on/off and `redirect_addr` need a restart.
   Keep cookies' `Secure` and `X-Forwarded-Proto` derived from `r.TLS`.
-  A server's own `https` is only how yard reaches it: yard connects over TLS without verifying the
+  A server's own `https` is only how Yard reaches it: Yard connects over TLS without verifying the
   certificate (the target is `127.0.0.1:{port}`), and it does not change `X-Forwarded-Proto`.
-- **yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output one file per start.**
+- **Yard's own log is `*slog.Logger`; yard.log and access_log are one file per day, server output one file per start.**
   Server output is passed to the process as `*os.File` (above), so it cannot be split by day; splitting it
-  would need a pipe that yard reads, which can block the server when yard falls behind.
+  would need a pipe that Yard reads, which can block the server when Yard falls behind.
   The pid is not known until the process exists, so the file is opened as `{name}-starting.log` and renamed to
   `{name}-{pid}.log` right after start (`Proc.nameLog`). On Windows that only works because `openLog` opens it
   with `FILE_SHARE_DELETE`; `os.OpenFile` does not. `Proc.LogFile` is the file of the current or last start.
@@ -117,7 +120,7 @@ The `internal/server` tests start the test binary itself with `YARD_TEST_HELPER=
 - Saving from the form editor rewrites yard.ini without its comments.
 - On Windows there is no way to ask a server to stop gracefully; stopping terminates it immediately.
 - Grandchild processes created between start and being put in the job object can leak (Windows).
-- On Unix, if yard is killed with SIGKILL, servers are left running (pdeathsig is not used).
+- On Unix, if Yard is killed with SIGKILL, servers are left running (pdeathsig is not used).
 - `strip_prefix` does not rewrite absolute paths in HTML or Cookie paths.
 - Service registration is unverified on real Windows, Linux, and macOS machines (_docs/service.md).
 

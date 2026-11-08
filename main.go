@@ -98,12 +98,12 @@ func run() error {
 		return control(svc, cmd, cfgPath, logDir)
 	}
 
-	logger, closeLog, err := newLogger(svc, cfg)
+	logger, logFile, closeLog, err := newLogger(svc, cfg)
 	if err != nil {
 		return err
 	}
 	defer closeLog()
-	prg.logger = logger
+	prg.logger, prg.logFile = logger, logFile
 	slog.SetDefault(logger)
 	return svc.Run()
 }
@@ -200,15 +200,18 @@ func writeTemplate(path string) error {
 //   - If yard.log is on, to yard_YYYYMMDD.log in the log directory (and also to stderr when in the foreground).
 //   - Otherwise to stderr in the foreground, or to the OS log when running as a service
 //     (the Event Log on Windows, syslog/journald on Linux).
-func newLogger(svc service.Service, cfg *config.Config) (*slog.Logger, func(), error) {
+//
+// logFile returns the file being written to, for the admin UI; it is nil if the log does not go to a file.
+func newLogger(svc service.Service, cfg *config.Config) (logger *slog.Logger, logFile func() string, closer func(), err error) {
 	var hs []slog.Handler
-	closer := func() {}
+	closer = func() {}
 	if name := cfg.YardLog(); name != "" {
 		w, err := logfile.Daily(name, true)
 		if err != nil {
-			return nil, nil, fmt.Errorf("log: %w", err)
+			return nil, nil, nil, fmt.Errorf("log: %w", err)
 		}
 		closer = func() { w.Close() }
+		logFile = w.Path
 		hs = append(hs, wlog.NewSimpleHandler(w, nil))
 	}
 	if service.Interactive() {
@@ -220,7 +223,7 @@ func newLogger(svc service.Service, cfg *config.Config) (*slog.Logger, func(), e
 			hs = append(hs, wlog.NewSimpleHandler(os.Stderr, nil))
 		}
 	}
-	return slog.New(slog.NewMultiHandler(hs...)), closer, nil
+	return slog.New(slog.NewMultiHandler(hs...)), logFile, closer, nil
 }
 
 // serviceHandler sends records to the OS log, keeping their level
@@ -280,6 +283,7 @@ type program struct {
 	cfgPath string
 	cfg     *config.Config
 	logger  *slog.Logger
+	logFile func() string // current file of yard's own log; nil if it does not go to a file
 
 	srv      *server.Server
 	http     *http.Server
@@ -310,6 +314,7 @@ func (p *program) Start(service.Service) error {
 		}
 		return err
 	}
+	srv.SetYardLog(p.logFile)
 	p.srv = srv
 	p.http = &http.Server{
 		Handler:           srv.Handler(),

@@ -233,14 +233,18 @@ func (c *Config) normalize() error {
 		errs = append(errs, err)
 	}
 
+	// The service name is the project id (yard); what people read is the app name (Yard).
 	if c.Service.Name == "" {
 		c.Service.Name = "yard"
 	}
 	if c.Service.DisplayName == "" {
-		c.Service.DisplayName = c.Service.Name
+		c.Service.DisplayName = "Yard"
+		if c.Service.Name != "yard" {
+			c.Service.DisplayName = "Yard (" + c.Service.Name + ")"
+		}
 	}
 	if c.Service.Description == "" {
-		c.Service.Description = "yard - intranet server proxy"
+		c.Service.Description = "Yard - intranet server proxy"
 	}
 
 	names := map[string]bool{}
@@ -470,7 +474,7 @@ func DefaultLogDir() string {
 }
 
 // Template is the configuration file template written by install / init.
-const Template = `# yard configuration file (TOML)
+const Template = `# Yard configuration file (TOML)
 # Relative paths for command / dir / cert / key are resolved against the directory of this file.
 # Logs that are turned on are written to the log directory (default %TEMP%\yard):
 #   [yard] log         yard_20261108.log    (one file per day)
@@ -494,8 +498,8 @@ allow = ["127.0.0.1", "::1"]
 
 [service]
 name = "yard"
-# display_name = "yard"
-# description = "yard - intranet server proxy"
+# display_name = "Yard"
+# description = "Yard - intranet server proxy"
 # user = ""
 # user_service = false
 

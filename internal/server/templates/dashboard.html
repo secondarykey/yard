@@ -7,6 +7,8 @@
     <h1>Servers</h1>
     <span class="muted mono">{{.Addr}}</span>
     <span class="spacer"></span>
+    {{if .YardLog}}<a class="btn" href="{{admin}}/logs/yard">Yard log</a>{{end}}
+    {{if .AccessLog}}<a class="btn" href="{{admin}}/logs/access">Access log</a>{{end}}
     <form method="post" action="{{admin}}/reload"><button>Reload config</button></form>
   </div>
   <div class="panel">

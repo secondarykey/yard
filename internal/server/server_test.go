@@ -174,6 +174,23 @@ func TestProxy(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "echo-starting.log")); !os.IsNotExist(err) {
 		t.Errorf("temporary log name left behind: %v", err)
 	}
+
+	// The access log and Yard's own log can be read from /.yard/logs.
+	if _, body, _ := get(t, ts.URL+"/.yard/logs/access?raw"); !strings.Contains(body, `"GET /echo/a/b?q=1 HTTP/1.1" 200`) {
+		t.Errorf("access log page = %q", body)
+	}
+	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, "/.yard/logs/access") || strings.Contains(body, "/.yard/logs/yard") {
+		t.Error("the server list should link the access log only")
+	}
+	yardLog := filepath.Join(dir, "yard_test.log")
+	os.WriteFile(yardLog, []byte("hello from yard\n"), 0o644)
+	s.SetYardLog(func() string { return yardLog })
+	if _, body, _ := get(t, ts.URL+"/.yard/logs/yard?raw"); body != "hello from yard\n" {
+		t.Errorf("yard log page = %q", body)
+	}
+	if code, _, _ := get(t, ts.URL+"/.yard/logs/other"); code != 404 {
+		t.Errorf("/.yard/logs/other = %d", code)
+	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "access_"+time.Now().Format("20060102")+".log")); !strings.Contains(string(b), `"GET /echo/a/b?q=1 HTTP/1.1" 200`) ||
 		!strings.Contains(string(b), " echo\n") {
 		t.Errorf("access log = %q", b)
