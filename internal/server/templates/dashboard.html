@@ -30,7 +30,11 @@
       <td class="center">
         <form method="post" action="{{admin}}/servers/{{.Name}}/log-on"><input type="checkbox" data-s="log" title="log"{{if .Log}} checked{{end}}></form>
       </td>
-      <td class="num mono center" data-f="port">{{with .Port}}{{.}}{{end}}</td>
+      <td class="num mono center">{{if $.Local -}}
+        <a data-f="port" target="_blank" rel="noopener" title="{{.Direct}}"{{with .Direct}} href="{{.}}"{{end}}>{{with .Port}}{{.}}{{end}}</a>
+      {{- else -}}
+        <span data-f="port">{{with .Port}}{{.}}{{end}}</span>
+      {{- end}}</td>
       <td class="center">
         <div class="actions">
           {{if or (eq .State "running") (eq .State "starting") (eq .State "backoff")}}
@@ -93,6 +97,10 @@
         f("state").className = "state " + t.state;
         f("pid").textContent = t.pid || "";
         f("port").textContent = t.port || "";
+        if (f("port").tagName === "A") {
+          if (t.direct) { f("port").href = t.direct; f("port").title = t.direct; }
+          else { f("port").removeAttribute("href"); f("port").title = ""; }
+        }
         f("uptime").dataset.started = t.started_at || "";
         f("restarts").textContent = t.restarts;
         f("error").textContent = t.error || "";

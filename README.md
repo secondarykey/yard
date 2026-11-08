@@ -159,6 +159,10 @@ A new port is picked on each start. Child processes created by the server are st
 When applying a configuration, servers whose settings did not change keep running; only changed servers are restarted.
 A changed server that was stopped stays stopped.
 
+When the server list is opened on the machine Yard runs on, a server's port links to the server itself
+(`http://127.0.0.1:{port}{base}`, bypassing Yard), for telling Yard's problems from the server's.
+From other machines the port is plain text, since servers only listen on loopback.
+
 Enabled and Log in the server list are saved to yard.ini. Only that one line is changed, so comments are kept.
 Disabling a server stops it, and turning its log on or off restarts it if it is running.
 Changes to `yard.addr` / `yard.log` / `yard.redirect_addr` / `[service]`, and turning HTTPS on or off, require restarting Yard

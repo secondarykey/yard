@@ -175,6 +175,18 @@ func TestProxy(t *testing.T) {
 		t.Errorf("temporary log name left behind: %v", err)
 	}
 
+	// From this machine the port links to the server itself.
+	direct := fmt.Sprintf("http://127.0.0.1:%d/echo/", st.Port)
+	if st.Direct != direct {
+		t.Errorf("direct = %q, want %q", st.Direct, direct)
+	}
+	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, `href="`+direct+`"`) {
+		t.Error("the port should link to the server itself")
+	}
+	if code, body, _ := get(t, direct+"a"); code != 200 || !strings.Contains(body, "path=/echo/a ") {
+		t.Errorf("direct = %d %s", code, body)
+	}
+
 	// The access log and Yard's own log can be read from /.yard/logs.
 	if _, body, _ := get(t, ts.URL+"/.yard/logs/access?raw"); !strings.Contains(body, `"GET /echo/a/b?q=1 HTTP/1.1" 200`) {
 		t.Errorf("access log page = %q", body)

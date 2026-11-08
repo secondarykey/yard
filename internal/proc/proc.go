@@ -53,6 +53,7 @@ type Status struct {
 	State     State     `json:"state"`
 	PID       int       `json:"pid,omitempty"`
 	Port      int       `json:"port,omitempty"`
+	Direct    string    `json:"direct,omitempty"` // URL of the server itself, bypassing yard (reachable from this machine only)
 	StartedAt time.Time `json:"started_at,omitzero"`
 	Restarts  int       `json:"restarts"`
 	ExitCode  *int      `json:"exit_code,omitempty"`
@@ -110,8 +111,22 @@ func (p *Proc) Status() Status {
 	}
 	if p.state == StateStarting || p.state == StateRunning {
 		s.PID, s.Port, s.StartedAt = p.pid, p.port, p.startedAt
+		s.Direct = DirectURL(p.conf, p.port)
 	}
 	return s
+}
+
+// DirectURL returns the URL of the server itself on port: the address yard forwards to, and the path
+// the server serves under ({base}, or "/" with strip_prefix).
+func DirectURL(t config.Server, port int) string {
+	scheme, p := "http", base(t.Path)
+	if t.HTTPS {
+		scheme = "https"
+	}
+	if t.StripPrefix {
+		p = "/"
+	}
+	return scheme + "://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + p
 }
 
 // LogFile returns the output file of the current or last start ({name}-{pid}.log),

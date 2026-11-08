@@ -165,6 +165,7 @@ type dashboardData struct {
 	Config    string
 	YardLog   bool // yard's own log goes to a file
 	AccessLog bool
+	Local     bool // the browser is on this machine, so the servers' own ports are reachable
 	Notices   []string
 	Error     string
 }
@@ -177,6 +178,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Config:    s.path,
 		YardLog:   s.yardLogFile() != "",
 		AccessLog: s.accessLogFile() != "",
+		Local:     config.IsLoopback(r.RemoteAddr),
 		Notices:   r.URL.Query()["notice"],
 		Error:     r.URL.Query().Get("error"),
 	})
