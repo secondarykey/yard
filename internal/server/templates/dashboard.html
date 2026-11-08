@@ -13,15 +13,21 @@
   {{if .Servers}}
   <table>
     <thead><tr>
-      <th>Name</th><th>Path</th><th class="center">State</th><th class="center">PID</th><th class="center">Port</th><th class="center">Uptime</th><th class="center">Restarts</th><th>Error</th><th class="center"></th><th class="center">Enabled</th><th class="center">Log</th>
+      <th class="center"></th><th>Name</th><th>Path</th><th class="center">State</th><th class="center">PID</th><th class="center">Log</th><th class="center">Port</th><th class="center">Uptime</th><th class="center">Restarts</th><th>Error</th><th class="center"></th><th class="center"></th>
     </tr></thead>
     <tbody>
     {{range .Servers}}
     <tr data-name="{{.Name}}">
+      <td class="center">
+        <form method="post" action="{{admin}}/servers/{{.Name}}/enable"><input type="checkbox" data-s="enabled" title="enabled"{{if ne .State "disabled"}} checked{{end}}></form>
+      </td>
       <td><strong>{{.Name}}</strong></td>
       <td class="mono"><a href="{{.Path}}">{{.Path}}</a>{{if .LocalOnly}} <span class="tag" title="local_only">local only</span>{{end}}</td>
       <td class="center"><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
       <td class="num mono center" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
+      <td class="center">
+        <form method="post" action="{{admin}}/servers/{{.Name}}/log-on"><input type="checkbox" data-s="log" title="log"{{if .Log}} checked{{end}}></form>
+      </td>
       <td class="num mono center" data-f="port">{{with .Port}}{{.}}{{end}}</td>
       <td class="num center" data-f="uptime" data-started="{{rfc3339 .StartedAt}}">{{uptime .StartedAt}}</td>
       <td class="num center" data-f="restarts">{{.Restarts}}</td>
@@ -36,15 +42,7 @@
           <form method="post" action="{{admin}}/servers/{{.Name}}/restart"><button data-a="restart">Restart</button></form>
         </div>
       </td>
-      <td class="center">
-        <form method="post" action="{{admin}}/servers/{{.Name}}/enable"><input type="checkbox" data-s="enabled" title="disabled = false"{{if ne .State "disabled"}} checked{{end}}></form>
-      </td>
-      <td class="center">
-        <div class="actions">
-          <form method="post" action="{{admin}}/servers/{{.Name}}/log-on"><input type="checkbox" data-s="log" title="log = true"{{if .Log}} checked{{end}}></form>
-          <a class="btn{{if not .HasLog}} invisible{{end}}" data-f="loglink" href="{{admin}}/servers/{{.Name}}/log">Log</a>
-        </div>
-      </td>
+      <td class="center"><a class="btn{{if not .HasLog}} invisible{{end}}" data-f="loglink" href="{{admin}}/servers/{{.Name}}/log">Log</a></td>
     </tr>
     {{end}}
     </tbody>
