@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 
 	"yard/internal/config"
 )
@@ -47,7 +48,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := waitReady(r.Context(), p)
+	target := waitReady(r.Context(), p, t.StartTimeout.Duration)
 	if target == "" {
 		if r.Context().Err() != nil {
 			return
@@ -58,41 +59,87 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rp := &httputil.ReverseProxy{
+	rt := &route{
+		name:   t.Name,
+		path:   t.Path,
+		strip:  t.StripPrefix && t.Path != "/",
+		scheme: "http",
+		host:   target,
+	}
+	if t.HTTPS {
+		rt.scheme = "https"
+	}
+	s.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeKey{}, rt)))
+}
+
+// route is where one request goes. proxy puts it in the request's context for the shared
+// ReverseProxy, so that the proxy (and its logger) is not built again for every request.
+type route struct {
+	name   string // server name
+	path   string // public path of the server
+	strip  bool   // strip_prefix, and the path is not "/"
+	scheme string
+	host   string // 127.0.0.1:{port}
+}
+
+type routeKey struct{}
+
+func routeOf(r *http.Request) *route { return r.Context().Value(routeKey{}).(*route) }
+
+// newReverseProxy builds the ReverseProxy shared by all servers.
+func (s *Server) newReverseProxy() *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			scheme := "http"
-			if t.HTTPS {
-				scheme = "https"
-			}
-			pr.SetURL(&url.URL{Scheme: scheme, Host: target})
-			if t.StripPrefix && t.Path != "/" {
-				stripPrefix(pr.Out.URL, pr.In.URL, t.Path)
+			rt := routeOf(pr.In)
+			pr.SetURL(&url.URL{Scheme: rt.scheme, Host: rt.host})
+			if rt.strip {
+				stripPrefix(pr.Out.URL, pr.In.URL, rt.path)
 			}
 			pr.Out.Host = pr.In.Host
+			// Rewrite has already removed Forwarded and X-Forwarded-* sent by the client. These two
+			// are not removed, and servers that trust them would take a client IP from the client.
+			pr.Out.Header.Del("X-Real-Ip")
+			pr.Out.Header.Del("True-Client-Ip")
 			pr.SetXForwarded()
-			pr.Out.Header.Set("X-Forwarded-Prefix", t.Path)
+			pr.Out.Header.Set("X-Forwarded-Prefix", rt.path)
 		},
-		Transport: s.transport,
-		ErrorLog:  slog.NewLogLogger(s.logger.Handler(), slog.LevelWarn),
+		ModifyResponse: func(res *http.Response) error {
+			rt := routeOf(res.Request)
+			if !rt.strip {
+				return nil
+			}
+			// Prepend the public path to redirects the server returned relative to its own "/".
+			if loc := res.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") {
+				res.Header.Set("Location", rt.path+loc)
+			}
+			return nil
+		},
+		Transport:  s.transport,
+		BufferPool: &bufferPool{},
+		ErrorLog:   slog.NewLogLogger(s.logger.Handler(), slog.LevelWarn),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
 				return // the client disconnected
 			}
-			s.logger.Warn("proxy", "server", t.Name, "err", err)
-			s.renderError(w, r, http.StatusBadGateway, "Bad Gateway", t.Name)
+			rt := routeOf(r)
+			s.logger.Warn("proxy", "server", rt.name, "err", err)
+			s.renderError(w, r, http.StatusBadGateway, "Bad Gateway", rt.name)
 		},
 	}
-	if t.StripPrefix && t.Path != "/" {
-		rp.ModifyResponse = func(res *http.Response) error {
-			// Prepend the public path to redirects the server returned relative to its own "/".
-			if loc := res.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") {
-				res.Header.Set("Location", t.Path+loc)
-			}
-			return nil
-		}
-	}
-	rp.ServeHTTP(w, r)
 }
+
+// bufferPool reuses the buffers ReverseProxy copies response bodies through,
+// instead of allocating 32 KB for every request.
+type bufferPool struct{ p sync.Pool }
+
+func (b *bufferPool) Get() []byte {
+	if buf, ok := b.p.Get().(*[]byte); ok {
+		return *buf
+	}
+	return make([]byte, 32*1024)
+}
+
+func (b *bufferPool) Put(buf []byte) { b.p.Put(&buf) }
 
 // stripPrefix removes prefix from out's path. in is the original request URL.
 func stripPrefix(out, in *url.URL, prefix string) {

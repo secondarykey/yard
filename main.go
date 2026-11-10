@@ -324,7 +324,10 @@ func (p *program) Start(service.Service) error {
 		Handler:           srv.Handler(),
 		TLSConfig:         srv.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          slog.NewLogLogger(p.logger.Handler(), slog.LevelWarn),
+		// Closes keep-alive connections left idle between requests; it does not apply while a
+		// request is being served.
+		IdleTimeout: 2 * time.Minute,
+		ErrorLog:    slog.NewLogLogger(p.logger.Handler(), slog.LevelWarn),
 		// No deadlines on reading/writing bodies, so that long-running responses
 		// from servers (SSE, WebSocket, large downloads) are not cut off.
 	}
@@ -349,6 +352,7 @@ func (p *program) Start(service.Service) error {
 		p.redirect = &http.Server{
 			Handler:           server.RedirectHandler(p.cfg.Yard.Addr),
 			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       2 * time.Minute,
 			ErrorLog:          slog.NewLogLogger(p.logger.Handler(), slog.LevelWarn),
 		}
 		p.logger.Info("redirecting http to https", "addr", redirectLn.Addr())

@@ -38,10 +38,11 @@ func helper() {
 			http.Redirect(w, r, "/target", http.StatusFound)
 			return
 		}
-		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s",
+		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s realip=[%s] ae=[%s]",
 			r.URL.Path, r.URL.RawPath, r.Host, r.Header.Get("X-Forwarded-Prefix"),
 			r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Forwarded-Proto"),
-			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"))
+			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"),
+			r.Header.Get("X-Real-Ip")+r.Header.Get("True-Client-Ip"), r.Header.Get("Accept-Encoding"))
 	})
 	fmt.Println("helper up")
 	addr := "127.0.0.1:" + os.Getenv("YARD_PORT")
@@ -151,6 +152,24 @@ func TestProxy(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body %q does not contain %q", body, want)
+		}
+	}
+
+	// Client IP headers sent by the client do not reach the server, and Yard does not ask
+	// for gzip on its own when the client did not.
+	req, _ := http.NewRequest("GET", ts.URL+"/echo/", nil)
+	req.Header.Set("X-Real-IP", "192.0.2.1")
+	req.Header.Set("True-Client-IP", "192.0.2.2")
+	req.Header.Set("X-Forwarded-For", "192.0.2.3")
+	res, err := (&http.Client{Transport: &http.Transport{DisableCompression: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	for _, want := range []string{"realip=[]", "ae=[]", "xff=127.0.0.1 "} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("body %q does not contain %q", b, want)
 		}
 	}
 
@@ -468,5 +487,30 @@ https = true
 	_, ts, _ = newTestServer(t, strings.Replace(tlsServer, "https = true", "", 1))
 	if code, body, _ := get(t, ts.URL+"/echo/a"); code == 200 && strings.Contains(body, "path=") {
 		t.Errorf("plain HTTP to an HTTPS server = %d %s", code, body)
+	}
+}
+
+// A request that is in flight while a save closes the access log must not write to the closed
+// log: that would open its file again, and nothing would close it.
+func TestAccessLogClosedDuringRequest(t *testing.T) {
+	s, _, _ := newTestServer(t, "")
+	file := s.accessLogFile()
+	if file == "" {
+		t.Fatal("access log is off")
+	}
+	h := s.logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := s.SaveConfig([]byte("[yard]\naccess_log = false\n")); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/during-save", nil))
+
+	if b, _ := os.ReadFile(file); strings.Contains(string(b), "/during-save") {
+		t.Errorf("written to the closed access log: %q", b)
+	}
+	// On Windows an open handle would keep the file from being removed.
+	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+		t.Errorf("access log is still open: %v", err)
 	}
 }
