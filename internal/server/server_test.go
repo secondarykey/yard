@@ -546,3 +546,13 @@ func TestForwarded(t *testing.T) {
 		t.Errorf("forwardedValue = %s", got)
 	}
 }
+
+func TestVersionInHeader(t *testing.T) {
+	old := Version
+	Version = "9.8.7"
+	t.Cleanup(func() { Version = old })
+	_, ts, _ := newTestServer(t, "")
+	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, `<span class="ver">v9.8.7</span>`) {
+		t.Errorf("the version is not in the header: %s", body)
+	}
+}

@@ -13,6 +13,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,7 +34,14 @@ import (
 	"yard/internal/server"
 )
 
+//go:embed version
+var versionFile string
+
+// version is Yard's version, from the version file at the root of the repository.
+var version = strings.TrimSpace(versionFile)
+
 func main() {
+	server.Version = version
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "yard: %v\n", err)
 		os.Exit(1)
@@ -335,7 +343,7 @@ func (p *program) Start(service.Service) error {
 	if p.http.TLSConfig != nil {
 		scheme = "https"
 	}
-	p.logger.Info("listening", "addr", ln.Addr(), "scheme", scheme, "config", p.cfgPath, "logdir", p.cfg.LogDir, "servers", len(p.cfg.Servers))
+	p.logger.Info("listening", "version", version, "addr", ln.Addr(), "scheme", scheme, "config", p.cfgPath, "logdir", p.cfg.LogDir, "servers", len(p.cfg.Servers))
 	go func() {
 		var err error
 		if p.http.TLSConfig != nil {

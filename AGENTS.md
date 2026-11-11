@@ -28,6 +28,7 @@ with no frontend build. Keep it that way.
 
 ```
 main.go                 entry point, subcommands, service control, logger
+version                 Yard's version; main.go embeds it and the admin UI header shows it (server.Version)
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
   password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
