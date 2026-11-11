@@ -24,7 +24,7 @@
         <form method="post" action="{{admin}}/servers/{{.Name}}/enable"><input type="checkbox" data-s="enabled" title="enabled"{{if ne .State "disabled"}} checked{{end}}></form>
       </td>
       <td><strong>{{.Name}}</strong></td>
-      <td class="mono"><a href="{{.Path}}">{{.Path}}</a>{{if .LocalOnly}} <span class="tag" title="local_only">local only</span>{{end}}</td>
+      <td class="mono"><a href="{{.Path}}" target="_blank" rel="noopener">{{.Path}}</a>{{if .LocalOnly}} <span class="tag" title="local_only">local only</span>{{end}}</td>
       <td class="center"><span class="state {{.State}}" data-f="state">{{.State}}</span></td>
       <td class="num mono center" data-f="pid">{{with .PID}}{{.}}{{end}}</td>
       <td class="center">

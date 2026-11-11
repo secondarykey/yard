@@ -207,6 +207,8 @@ func TestProxy(t *testing.T) {
 	}
 	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, `href="`+direct+`"`) {
 		t.Error("the port should link to the server itself")
+	} else if !strings.Contains(body, `<a href="/echo" target="_blank" rel="noopener">/echo</a>`) {
+		t.Error("the path should open the server in a new window")
 	}
 	if code, body, _ := get(t, direct+"a"); code != 200 || !strings.Contains(body, "path=/echo/a ") {
 		t.Errorf("direct = %d %s", code, body)
