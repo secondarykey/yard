@@ -560,4 +560,8 @@ func TestHeader(t *testing.T) {
 	if strings.Contains(body, ">Servers</a>") {
 		t.Error("the Servers tab is still there")
 	}
+	// Like the log pages, Config has a button back to the server list.
+	if !strings.Contains(body, `<a class="btn" href="/.yard/" title="Servers">←</a>`) {
+		t.Error("Config has no back button")
+	}
 }
