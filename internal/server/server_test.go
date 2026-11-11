@@ -38,10 +38,11 @@ func helper() {
 			http.Redirect(w, r, "/target", http.StatusFound)
 			return
 		}
-		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s realip=[%s] ae=[%s]",
+		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s fwd=%s realip=[%s] ae=[%s]",
 			r.URL.Path, r.URL.RawPath, r.Host, r.Header.Get("X-Forwarded-Prefix"),
 			r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Forwarded-Proto"),
 			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"),
+			strings.Join(r.Header.Values("Forwarded"), "|"),
 			r.Header.Get("X-Real-Ip")+r.Header.Get("True-Client-Ip"), r.Header.Get("Accept-Encoding"))
 	})
 	fmt.Println("helper up")
@@ -149,24 +150,29 @@ func TestProxy(t *testing.T) {
 		fmt.Sprintf("arg=-p,%d,/echo/", st.Port),
 		"base=/echo/",
 		"host=" + strings.TrimPrefix(ts.URL, "http://"),
+		`fwd=for=127.0.0.1;host="` + strings.TrimPrefix(ts.URL, "http://") + `";proto=http`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body %q does not contain %q", body, want)
 		}
 	}
 
-	// Client IP headers sent by the client do not reach the server, and Yard does not ask
-	// for gzip on its own when the client did not.
+	// Forwarding and client IP headers sent by the client are replaced or dropped, not passed on
+	// or appended to, and Yard does not ask for gzip on its own when the client did not.
 	req, _ := http.NewRequest("GET", ts.URL+"/echo/", nil)
+	req.Header.Set("Forwarded", "for=192.0.2.1")
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	req.Header.Set("X-Real-IP", "192.0.2.1")
-	req.Header.Set("True-Client-IP", "192.0.2.2")
-	req.Header.Set("X-Forwarded-For", "192.0.2.3")
+	req.Header.Set("True-Client-IP", "192.0.2.1")
 	res, err := (&http.Client{Transport: &http.Transport{DisableCompression: true}}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, _ := io.ReadAll(res.Body)
 	res.Body.Close()
+	if body := string(b); strings.Contains(body, "192.0.2.1") || !strings.Contains(body, "fwd=for=127.0.0.1;") {
+		t.Errorf("forged forwarding headers: body %q", body)
+	}
 	for _, want := range []string{"realip=[]", "ae=[]", "xff=127.0.0.1 "} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("body %q does not contain %q", b, want)
@@ -512,5 +518,31 @@ func TestAccessLogClosedDuringRequest(t *testing.T) {
 	// On Windows an open handle would keep the file from being removed.
 	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
 		t.Errorf("access log is still open: %v", err)
+	}
+}
+
+func TestForwarded(t *testing.T) {
+	for _, c := range []struct {
+		remote, host string
+		tls          bool
+		want         string
+	}{
+		{"192.0.2.43:5000", "example.com", false, "for=192.0.2.43;host=example.com;proto=http"},
+		{"192.0.2.43:5000", "example.com:8443", true, `for=192.0.2.43;host="example.com:8443";proto=https`},
+		{"[2001:db8::1]:4711", "[2001:db8::2]", false, `for="[2001:db8::1]";host="[2001:db8::2]";proto=http`},
+		{"pipe", "", false, "proto=http"},
+	} {
+		target := "http://x/"
+		if c.tls {
+			target = "https://x/" // httptest sets r.TLS
+		}
+		r := httptest.NewRequest("GET", target, nil)
+		r.RemoteAddr, r.Host = c.remote, c.host
+		if got := forwarded(r); got != c.want {
+			t.Errorf("forwarded(%s, %s, tls=%v) = %s, want %s", c.remote, c.host, c.tls, got, c.want)
+		}
+	}
+	if got := forwardedValue(`a"b\c`); got != `"a\"b\\c"` {
+		t.Errorf("forwardedValue = %s", got)
 	}
 }

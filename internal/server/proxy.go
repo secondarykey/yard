@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -15,8 +16,9 @@ import (
 
 // proxy forwards the request to the server whose path matches.
 //
-// The Host header is passed through unchanged, and X-Forwarded-For / -Host / -Proto and
-// X-Forwarded-Prefix (the server's path) are added. Upgrades such as WebSocket are
+// The Host header is passed through unchanged, and X-Forwarded-For / -Host / -Proto,
+// X-Forwarded-Prefix (the server's path), and Forwarded (RFC 7239) are added. Any of these
+// sent by the client are dropped first, so they carry only what Yard saw. Upgrades such as WebSocket are
 // relayed as is by httputil.ReverseProxy. A server with https is reached over TLS.
 //
 // A server with local_only gets only requests from this machine; others get 403.
@@ -96,12 +98,13 @@ func (s *Server) newReverseProxy() *httputil.ReverseProxy {
 				stripPrefix(pr.Out.URL, pr.In.URL, rt.path)
 			}
 			pr.Out.Host = pr.In.Host
-			// Rewrite has already removed Forwarded and X-Forwarded-* sent by the client. These two
+			// Rewrite has already removed the client's Forwarded / X-Forwarded-* headers. These two
 			// are not removed, and servers that trust them would take a client IP from the client.
 			pr.Out.Header.Del("X-Real-Ip")
 			pr.Out.Header.Del("True-Client-Ip")
 			pr.SetXForwarded()
 			pr.Out.Header.Set("X-Forwarded-Prefix", rt.path)
+			pr.Out.Header.Set("Forwarded", forwarded(pr.In))
 		},
 		ModifyResponse: func(res *http.Response) error {
 			rt := routeOf(res.Request)
@@ -157,4 +160,55 @@ func stripPrefix(out, in *url.URL, prefix string) {
 		}
 		out.RawPath = raw
 	}
+}
+
+// forwarded returns the Forwarded header (RFC 7239) for r: the same client address,
+// host, and scheme as X-Forwarded-For / -Host / -Proto.
+func forwarded(r *http.Request) string {
+	var parts []string
+	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if strings.Contains(ip, ":") {
+			ip = "[" + ip + "]" // IPv6 is written in brackets (and therefore quoted)
+		}
+		parts = append(parts, "for="+forwardedValue(ip))
+	}
+	if r.Host != "" {
+		parts = append(parts, "host="+forwardedValue(r.Host))
+	}
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	parts = append(parts, "proto="+proto)
+	return strings.Join(parts, ";")
+}
+
+// forwardedValue writes v as a token if it is one, otherwise as a quoted-string.
+func forwardedValue(v string) string {
+	token := v != ""
+	for i := 0; i < len(v) && token; i++ {
+		token = isTokenChar(v[i])
+	}
+	if token {
+		return v
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(v); i++ {
+		if v[i] == '"' || v[i] == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(v[i])
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// isTokenChar reports whether c is a tchar of RFC 9110.
+func isTokenChar(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	}
+	return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
 }
