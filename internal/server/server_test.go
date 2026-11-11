@@ -547,12 +547,17 @@ func TestForwarded(t *testing.T) {
 	}
 }
 
-func TestVersionInHeader(t *testing.T) {
+// The header shows the version, and the name links to the server list (there is no Servers tab).
+func TestHeader(t *testing.T) {
 	old := Version
 	Version = "9.8.7"
 	t.Cleanup(func() { Version = old })
 	_, ts, _ := newTestServer(t, "")
-	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, `<span class="ver">v9.8.7</span>`) {
-		t.Errorf("the version is not in the header: %s", body)
+	_, body, _ := get(t, ts.URL+"/.yard/config")
+	if !strings.Contains(body, `<a class="brand" href="/.yard/">Yard<span class="ver">v9.8.7</span></a>`) {
+		t.Errorf("the name should link to the server list and show the version: %s", body)
+	}
+	if strings.Contains(body, ">Servers</a>") {
+		t.Error("the Servers tab is still there")
 	}
 }
