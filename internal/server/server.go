@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,6 +32,7 @@ type Server struct {
 	mgr    *proc.Manager
 
 	transport *http.Transport
+	rp        *httputil.ReverseProxy // shared by all servers; the target comes with the request (proxy.go)
 
 	mu     sync.RWMutex
 	cfg    *config.Config
@@ -91,15 +93,23 @@ func New(cfgPath string, cfg *config.Config, logger *slog.Logger) (*Server, erro
 				Timeout:   5 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
-			MaxIdleConnsPerHost:   16,
+			// Above this many concurrent requests to one server, connections are closed after use
+			// and pile up in TIME_WAIT on loopback.
+			MaxIdleConnsPerHost:   64,
 			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
+			// Otherwise the transport asks for gzip on requests that did not, and then unzips it:
+			// work for both sides on a loopback connection. Accept-Encoding sent by the client
+			// is still passed through as is.
+			DisableCompression: true,
 			// Only for servers with https. The target is 127.0.0.1:{port}, which no certificate
 			// names, and the connection never leaves this machine, so the certificate is not verified.
 			// Setting TLSClientConfig also keeps the transport on HTTP/1.1, which upgrades need.
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
+	s.rp = s.newReverseProxy()
 	s.mgr.Apply(cfg.Servers)
 	return s, nil
 }
@@ -196,8 +206,11 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 		notices = append(notices, "[service] takes effect after re-registering the service (uninstall → install)")
 	}
 
+	// The access log is replaced when it is turned on or off, or cleans up differently.
+	// access stays nil when it is turned off, so that it really stops.
 	var access *accessLog
-	if cfg.Yard.AccessLog != old.Yard.AccessLog || !sameCleanup(cfg.Yard, old.Yard) {
+	replace := cfg.Yard.AccessLog != old.Yard.AccessLog || !sameCleanup(cfg.Yard, old.Yard)
+	if replace {
 		a, err := openAccessLog(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("access log: %w", err)
@@ -207,7 +220,7 @@ func (s *Server) apply(cfg *config.Config) ([]string, error) {
 
 	s.mu.Lock()
 	s.cfg = cfg
-	if access != nil {
+	if replace {
 		s.access.Close()
 		s.access = access
 	}
@@ -277,8 +290,12 @@ func writeFileAtomic(name string, data []byte) error {
 }
 
 // waitReady waits for a starting server while the request is alive, up to its start timeout.
-func waitReady(ctx context.Context, p *proc.Proc) string {
-	ctx, cancel := context.WithTimeout(ctx, p.Config().StartTimeout.Duration)
+// A running server returns at once, without setting up the timeout.
+func waitReady(ctx context.Context, p *proc.Proc, timeout time.Duration) string {
+	if target := p.Target(); target != "" {
+		return target
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return p.WaitReady(ctx)
 }

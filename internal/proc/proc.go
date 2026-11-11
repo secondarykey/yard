@@ -485,20 +485,27 @@ func FreePort() (int, error) {
 }
 
 // waitPort waits until the port accepts connections. It returns false when ctx is done.
+// It tries often at first and less often later, so that a server that starts quickly
+// is noticed quickly (requests that arrived meanwhile are waiting for it).
 func waitPort(ctx context.Context, port int) bool {
+	const (
+		firstWait = 10 * time.Millisecond
+		maxWait   = 100 * time.Millisecond
+	)
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	d := net.Dialer{Timeout: 500 * time.Millisecond}
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-	for {
+	timer := time.NewTimer(firstWait)
+	defer timer.Stop()
+	for wait := firstWait; ; wait = min(wait*2, maxWait) {
 		if c, err := d.DialContext(ctx, "tcp", addr); err == nil {
 			c.Close()
 			return true
 		}
+		timer.Reset(wait)
 		select {
 		case <-ctx.Done():
 			return false
-		case <-tick.C:
+		case <-timer.C:
 		}
 	}
 }

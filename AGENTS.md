@@ -28,6 +28,7 @@ with no frontend build. Keep it that way.
 
 ```
 main.go                 entry point, subcommands, service control, logger
+version                 Yard's version; main.go embeds it and the admin UI header shows it (server.Version)
 internal/config         loading / validating yard.ini, resolving relative paths, admin.allow
   password.go           admin.password_hash (PBKDF2)
   format.go             writing a Config back as yard.ini (for the form editor)
@@ -104,7 +105,12 @@ _cmd/hello              server for manual testing
   `Server.access`, and Yard's own log through `Server.SetYardLog`, since `main.go` sets the logger up first.
 - **The Port link (`Status.Direct`) is only for browsers on this machine.** Servers listen on `127.0.0.1`,
   so the server list makes it a link only when the request comes from loopback (`dashboardData.Local`).
-- Only `ReadHeaderTimeout` is set on `http.Server`, so that SSE / WebSocket / large responses are not cut off.
+- Only `ReadHeaderTimeout` and `IdleTimeout` (between requests) are set on `http.Server`, so that
+  SSE / WebSocket / large responses are not cut off.
+- **One `httputil.ReverseProxy` serves all servers (`Server.rp`).** `proxy` puts the target in the request
+  context (`route`); do not capture per-request values in its closures.
+- **Write the access log through `s.access` under `s.mu.RLock` at the end of the request**, not through a
+  writer taken at the start: a closed `RollingFileWriter` opens its file again when written to.
 - Service: `Start` does not block (it does everything up to listen synchronously and reports failure to the SCM), and `Stop` returns quickly.
   Windows services do not receive signals.
 - Do not put usage instructions in the admin UI.

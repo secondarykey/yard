@@ -36,8 +36,12 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 		}
 		return t.Format(time.RFC3339)
 	},
-	"admin": func() string { return config.AdminPath },
+	"admin":   func() string { return config.AdminPath },
+	"version": func() string { return Version },
 }).ParseFS(templateFS, "templates/*.html"))
+
+// Version is Yard's version, shown in the admin UI. main sets it before serving.
+var Version string
 
 // logTailBytes is how many bytes from the end of a log are shown.
 const logTailBytes = 256 << 10

@@ -55,9 +55,9 @@ func setTarget(r *http.Request, name string) {
 func (s *Server) logAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.RLock()
-		a := s.access
+		on := s.access != nil
 		s.mu.RUnlock()
-		if a == nil {
+		if !on {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -78,7 +78,7 @@ func (s *Server) logAccess(next http.Handler) http.Handler {
 		if err != nil {
 			host = r.RemoteAddr
 		}
-		fmt.Fprintf(a.w, "%s - - [%s] %q %d %d %q %q %d %s\n",
+		line := fmt.Appendf(nil, "%s - - [%s] %q %d %d %q %q %d %s\n",
 			host,
 			start.Format("02/Jan/2006:15:04:05 -0700"),
 			r.Method+" "+r.RequestURI+" "+r.Proto,
@@ -89,6 +89,14 @@ func (s *Server) logAccess(next http.Handler) http.Handler {
 			time.Since(start).Milliseconds(),
 			orDash(*target),
 		)
+		// Take the log that is current now, not the one from the start: a reload may have closed
+		// that one meanwhile, and writing to a closed RollingFileWriter opens its file again, which
+		// nothing would close. Holding RLock keeps apply / Close from closing it during the write.
+		s.mu.RLock()
+		if s.access != nil {
+			s.access.w.Write(line)
+		}
+		s.mu.RUnlock()
 	})
 }
 

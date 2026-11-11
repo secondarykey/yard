@@ -38,10 +38,12 @@ func helper() {
 			http.Redirect(w, r, "/target", http.StatusFound)
 			return
 		}
-		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s",
+		fmt.Fprintf(w, "path=%s raw=%s host=%s prefix=%s xff=%s proto=%s arg=%s base=%s fwd=%s realip=[%s] ae=[%s]",
 			r.URL.Path, r.URL.RawPath, r.Host, r.Header.Get("X-Forwarded-Prefix"),
 			r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Forwarded-Proto"),
-			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"))
+			strings.Join(os.Args[1:], ","), os.Getenv("YARD_BASE"),
+			strings.Join(r.Header.Values("Forwarded"), "|"),
+			r.Header.Get("X-Real-Ip")+r.Header.Get("True-Client-Ip"), r.Header.Get("Accept-Encoding"))
 	})
 	fmt.Println("helper up")
 	addr := "127.0.0.1:" + os.Getenv("YARD_PORT")
@@ -148,9 +150,32 @@ func TestProxy(t *testing.T) {
 		fmt.Sprintf("arg=-p,%d,/echo/", st.Port),
 		"base=/echo/",
 		"host=" + strings.TrimPrefix(ts.URL, "http://"),
+		`fwd=for=127.0.0.1;host="` + strings.TrimPrefix(ts.URL, "http://") + `";proto=http`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body %q does not contain %q", body, want)
+		}
+	}
+
+	// Forwarding and client IP headers sent by the client are replaced or dropped, not passed on
+	// or appended to, and Yard does not ask for gzip on its own when the client did not.
+	req, _ := http.NewRequest("GET", ts.URL+"/echo/", nil)
+	req.Header.Set("Forwarded", "for=192.0.2.1")
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
+	req.Header.Set("X-Real-IP", "192.0.2.1")
+	req.Header.Set("True-Client-IP", "192.0.2.1")
+	res, err := (&http.Client{Transport: &http.Transport{DisableCompression: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if body := string(b); strings.Contains(body, "192.0.2.1") || !strings.Contains(body, "fwd=for=127.0.0.1;") {
+		t.Errorf("forged forwarding headers: body %q", body)
+	}
+	for _, want := range []string{"realip=[]", "ae=[]", "xff=127.0.0.1 "} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("body %q does not contain %q", b, want)
 		}
 	}
 
@@ -182,6 +207,8 @@ func TestProxy(t *testing.T) {
 	}
 	if _, body, _ := get(t, ts.URL+"/.yard/"); !strings.Contains(body, `href="`+direct+`"`) {
 		t.Error("the port should link to the server itself")
+	} else if !strings.Contains(body, `<a href="/echo" target="_blank" rel="noopener">/echo</a>`) {
+		t.Error("the path should open the server in a new window")
 	}
 	if code, body, _ := get(t, direct+"a"); code != 200 || !strings.Contains(body, "path=/echo/a ") {
 		t.Errorf("direct = %d %s", code, body)
@@ -468,5 +495,75 @@ https = true
 	_, ts, _ = newTestServer(t, strings.Replace(tlsServer, "https = true", "", 1))
 	if code, body, _ := get(t, ts.URL+"/echo/a"); code == 200 && strings.Contains(body, "path=") {
 		t.Errorf("plain HTTP to an HTTPS server = %d %s", code, body)
+	}
+}
+
+// A request that is in flight while a save closes the access log must not write to the closed
+// log: that would open its file again, and nothing would close it.
+func TestAccessLogClosedDuringRequest(t *testing.T) {
+	s, _, _ := newTestServer(t, "")
+	file := s.accessLogFile()
+	if file == "" {
+		t.Fatal("access log is off")
+	}
+	h := s.logAccess(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := s.SaveConfig([]byte("[yard]\naccess_log = false\n")); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/during-save", nil))
+
+	if b, _ := os.ReadFile(file); strings.Contains(string(b), "/during-save") {
+		t.Errorf("written to the closed access log: %q", b)
+	}
+	// On Windows an open handle would keep the file from being removed.
+	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+		t.Errorf("access log is still open: %v", err)
+	}
+}
+
+func TestForwarded(t *testing.T) {
+	for _, c := range []struct {
+		remote, host string
+		tls          bool
+		want         string
+	}{
+		{"192.0.2.43:5000", "example.com", false, "for=192.0.2.43;host=example.com;proto=http"},
+		{"192.0.2.43:5000", "example.com:8443", true, `for=192.0.2.43;host="example.com:8443";proto=https`},
+		{"[2001:db8::1]:4711", "[2001:db8::2]", false, `for="[2001:db8::1]";host="[2001:db8::2]";proto=http`},
+		{"pipe", "", false, "proto=http"},
+	} {
+		target := "http://x/"
+		if c.tls {
+			target = "https://x/" // httptest sets r.TLS
+		}
+		r := httptest.NewRequest("GET", target, nil)
+		r.RemoteAddr, r.Host = c.remote, c.host
+		if got := forwarded(r); got != c.want {
+			t.Errorf("forwarded(%s, %s, tls=%v) = %s, want %s", c.remote, c.host, c.tls, got, c.want)
+		}
+	}
+	if got := forwardedValue(`a"b\c`); got != `"a\"b\\c"` {
+		t.Errorf("forwardedValue = %s", got)
+	}
+}
+
+// The header shows the version, and the name links to the server list (there is no Servers tab).
+func TestHeader(t *testing.T) {
+	old := Version
+	Version = "9.8.7"
+	t.Cleanup(func() { Version = old })
+	_, ts, _ := newTestServer(t, "")
+	_, body, _ := get(t, ts.URL+"/.yard/config")
+	if !strings.Contains(body, `<a class="brand" href="/.yard/">Yard<span class="ver">v9.8.7</span></a>`) {
+		t.Errorf("the name should link to the server list and show the version: %s", body)
+	}
+	if strings.Contains(body, ">Servers</a>") {
+		t.Error("the Servers tab is still there")
+	}
+	// Like the log pages, Config has a button back to the server list.
+	if !strings.Contains(body, `<a class="btn" href="/.yard/" title="Servers">←</a>`) {
+		t.Error("Config has no back button")
 	}
 }
